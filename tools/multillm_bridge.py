@@ -15,6 +15,21 @@ PROVIDERS = [
         "priority": 10
     },
     {
+        "name": "octavapi (GPT-6 Astra & Opus 5.5 Pool)",
+        "base_url": os.environ.get("OCTAVAPI_BASE_URL", "https://octavapi.shop/v1"),
+        "api_key": os.environ.get("OCTAVAPI_API_KEY", "sk-octava-live_rkUKBERsL9BNXccsliKLaJ_BqRSWK2LY"),
+        "supported_models": [
+            "gpt-6-astra",
+            "gpt-6-sol",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra",
+            "gpt-5.5",
+            "claude-opus-5-5",
+            "claude-sonnet-5"
+        ],
+        "priority": 8
+    },
+    {
         "name": "cheapvibecode (5M Pool)",
         "base_url": os.environ.get("MULTILLM_BASE_URL", "https://api.aikeysforyou.com/v1"),
         "api_key": os.environ.get("MULTILLM_API_KEY", "sk-cvc-14fcd3078026472914eeee63d17063a371ef607aad4c98317f6af669328a1ed5"),
