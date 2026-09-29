@@ -18,11 +18,18 @@ New-Item -ItemType Directory -Path "$geminiConfigDir\rules" -Force | Out-Null
 New-Item -ItemType Directory -Path "$geminiConfigDir\skills\context_booster" -Force | Out-Null
 New-Item -ItemType Directory -Path $ToolsDir -Force | Out-Null
 
-Write-Host "[2/4] Deploying claude_bridge.py..." -ForegroundColor Yellow
+Write-Host "[2/4] Deploying bridge tools..." -ForegroundColor Yellow
 $sourceBridge = Join-Path $repoRoot "tools\claude_bridge.py"
 $targetBridge = Join-Path $ToolsDir "claude_bridge.py"
 Copy-Item $sourceBridge -Destination $targetBridge -Force
-Write-Host "  Deployed to $targetBridge" -ForegroundColor Green
+Write-Host "  Deployed claude_bridge to $targetBridge" -ForegroundColor Green
+
+$sourceMulti = Join-Path $repoRoot "tools\multillm_bridge.py"
+$targetMulti = Join-Path $ToolsDir "multillm_bridge.py"
+if (Test-Path $sourceMulti) {
+    Copy-Item $sourceMulti -Destination $targetMulti -Force
+    Write-Host "  Deployed multillm_bridge to $targetMulti" -ForegroundColor Green
+}
 
 Write-Host "[3/4] Deploying global Antigravity rules and skills..." -ForegroundColor Yellow
 Copy-Item (Join-Path $repoRoot "config\GEMINI.md") -Destination "$geminiConfigDir\GEMINI.md" -Force
@@ -30,6 +37,7 @@ Copy-Item (Join-Path $repoRoot "config\rules\claude_bridge.md") -Destination "$g
 Copy-Item (Join-Path $repoRoot "config\skills\context_booster\SKILL.md") -Destination "$geminiConfigDir\skills\context_booster\SKILL.md" -Force
 
 $escapedToolsPath = ($targetBridge -replace '\\', '\\')
+$escapedMultiPath = ($targetMulti -replace '\\', '\\')
 $mcpConfigJson = @"
 {
   "mcpServers": {
@@ -37,7 +45,19 @@ $mcpConfigJson = @"
       "command": "python",
       "args": [
         "$escapedToolsPath"
-      ]
+      ],
+      "env": {
+        "CLAUDE_BRIDGE_MODEL": "opus"
+      }
+    },
+    "multillm-bridge": {
+      "command": "python",
+      "args": [
+        "$escapedMultiPath"
+      ],
+      "env": {
+        "MULTILLM_DEFAULT_MODEL": "deepseek-v4-pro"
+      }
     }
   }
 }

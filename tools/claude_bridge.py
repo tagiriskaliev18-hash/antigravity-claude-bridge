@@ -8,7 +8,7 @@ CLAUDE_PATH = os.path.expandvars(r"%USERPROFILE%\.local\bin\claude.exe")
 if not os.path.exists(CLAUDE_PATH):
     CLAUDE_PATH = "claude"
 
-MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "sonnet")
+MODEL = os.environ.get("CLAUDE_BRIDGE_MODEL", "opus")
 
 def log(msg):
     sys.stderr.write(f"[claude-bridge] {msg}\n")

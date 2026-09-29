@@ -4,7 +4,19 @@
       "command": "python",
       "args": [
         "C:\\projects\\tools\\claude_bridge.py"
-      ]
+      ],
+      "env": {
+        "CLAUDE_BRIDGE_MODEL": "opus"
+      }
+    },
+    "multillm-bridge": {
+      "command": "python",
+      "args": [
+        "C:\\projects\\tools\\multillm_bridge.py"
+      ],
+      "env": {
+        "MULTILLM_DEFAULT_MODEL": "deepseek-v4-pro"
+      }
     }
   }
 }
