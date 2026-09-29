@@ -76,10 +76,20 @@ if ($pythonCheck) {
 $claudePath = "$env:USERPROFILE\.local\bin\claude.exe"
 if (Test-Path $claudePath) {
     Write-Host "  [OK] Claude CLI found at $claudePath" -ForegroundColor Green
+    & $claudePath mcp add -s user multillm-bridge -- python "$escapedMultiPath" | Out-Null
+    $claudeConfigDir = "$env:USERPROFILE\.claude"
+    New-Item -ItemType Directory -Path $claudeConfigDir -Force | Out-Null
+    Copy-Item (Join-Path $repoRoot "config\CLAUDE.md") -Destination "$claudeConfigDir\CLAUDE.md" -Force
+    Write-Host "  [OK] MultiLLM Bridge connected to Claude Code" -ForegroundColor Green
 } else {
     $claudeCmd = Get-Command claude -ErrorAction SilentlyContinue
     if ($claudeCmd) {
         Write-Host "  [OK] Claude CLI found in PATH: $($claudeCmd.Source)" -ForegroundColor Green
+        claude mcp add -s user multillm-bridge -- python "$escapedMultiPath" | Out-Null
+        $claudeConfigDir = "$env:USERPROFILE\.claude"
+        New-Item -ItemType Directory -Path $claudeConfigDir -Force | Out-Null
+        Copy-Item (Join-Path $repoRoot "config\CLAUDE.md") -Destination "$claudeConfigDir\CLAUDE.md" -Force
+        Write-Host "  [OK] MultiLLM Bridge connected to Claude Code" -ForegroundColor Green
     } else {
         Write-Host "  [!] Claude CLI not found yet. Install Claude Code (npm i -g @anthropic-ai/claude-code) and run 'claude' once to authenticate." -ForegroundColor Yellow
     }
