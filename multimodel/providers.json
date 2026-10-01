@@ -1,0 +1,165 @@
+{
+  "default_provider": "deepseek_v4_pro",
+  "claude_fallback": [
+    "octava_claude_opus",
+    "deepseek_v4_pro"
+  ],
+  "accounts": {
+    "cvc": {
+      "title": "CheapVibeCode (api.aikeysforyou.com)",
+      "balance_units": null,
+      "note": "Один ключ на пулы DeepSeek V4 Pro, Qwen, GLM и MiniMax. Впиши остаток в balance_units, и мост начнёт считать, сколько осталось."
+    },
+    "xyvero": {
+      "title": "Xyvero (xyvero.space)",
+      "balance_units": null,
+      "note": "Пул DeepSeek V4.1 Flash."
+    },
+    "octavapi": {
+      "title": "OctavAPI (octavapi.shop)",
+      "balance_units": null,
+      "note": "Пулы GPT-6 Astra и Claude Opus 5.5 через шлюз."
+    },
+    "moonshot": {
+      "title": "Moonshot AI (Kimi)",
+      "balance_units": null,
+      "note": "Ключ Kimi. Название модели проверяется командой --check после ввода ключа."
+    },
+    "groq": {
+      "title": "Groq (бесплатный тариф)",
+      "balance_units": null
+    },
+    "pollinations": {
+      "title": "Pollinations (открытый шлюз без ключа)",
+      "balance_units": null
+    },
+    "claude_cli": {
+      "title": "Claude Code CLI (подписка Claude на этом компьютере)",
+      "balance_units": null
+    }
+  },
+  "providers": {
+    "deepseek_v4_pro": {
+      "type": "openai_compatible",
+      "account": "cvc",
+      "base_url": "https://api.aikeysforyou.com/v1",
+      "base_url_env": "CVC_BASE_URL",
+      "model": "deepseek-v4-pro",
+      "api_key_env": "CVC_API_KEY",
+      "units_per_token": 0.5,
+      "tier": "paid",
+      "privacy": "private",
+      "description": "DeepSeek V4 Pro: глубокие рассуждения, архитектура и сложный код."
+    },
+    "qwen_flash": {
+      "type": "openai_compatible",
+      "account": "cvc",
+      "base_url": "https://api.aikeysforyou.com/v1",
+      "base_url_env": "CVC_BASE_URL",
+      "model": "qwen3.8-flash",
+      "api_key_env": "CVC_API_KEY",
+      "units_per_token": 1,
+      "tier": "paid",
+      "privacy": "private",
+      "description": "Qwen 3.8 Flash: быстрые черновики кода и шаблоны."
+    },
+    "glm_5": {
+      "type": "openai_compatible",
+      "account": "cvc",
+      "base_url": "https://api.aikeysforyou.com/v1",
+      "base_url_env": "CVC_BASE_URL",
+      "model": "glm-5.3",
+      "api_key_env": "CVC_API_KEY",
+      "tier": "paid",
+      "privacy": "private",
+      "description": "GLM 5.3: анализ кода, ревью и аудит безопасности."
+    },
+    "minimax_m3": {
+      "type": "openai_compatible",
+      "account": "cvc",
+      "base_url": "https://api.aikeysforyou.com/v1",
+      "base_url_env": "CVC_BASE_URL",
+      "model": "minimax-m3",
+      "api_key_env": "CVC_API_KEY",
+      "tier": "paid",
+      "privacy": "private",
+      "description": "MiniMax M3: длинный контекст, обзоры больших кодовых баз и архитектуры."
+    },
+    "xyvero": {
+      "type": "openai_compatible",
+      "account": "xyvero",
+      "base_url": "https://xyvero.space/v1",
+      "base_url_env": "XYVERO_BASE_URL",
+      "model": "deepseek-v4.1-flash",
+      "api_key_env": "XYVERO_API_KEY",
+      "units_per_token": 1,
+      "tier": "paid",
+      "privacy": "private",
+      "description": "DeepSeek V4.1 Flash: быстрый и экономный пул для ревью и рутины."
+    },
+    "kimi": {
+      "type": "openai_compatible",
+      "account": "moonshot",
+      "base_url": "https://api.moonshot.ai/v1",
+      "base_url_env": "KIMI_BASE_URL",
+      "model": "kimi-latest",
+      "model_env": "KIMI_MODEL",
+      "api_key_env": "KIMI_API_KEY",
+      "tier": "paid",
+      "privacy": "private",
+      "description": "Kimi (Moonshot AI): длинный контекст и агентные задачи. Модель задаётся в KIMI_MODEL, если kimi-latest не подойдёт."
+    },
+    "octava_gpt6": {
+      "type": "openai_compatible",
+      "account": "octavapi",
+      "base_url": "https://octavapi.shop/v1",
+      "base_url_env": "OCTAVAPI_BASE_URL",
+      "model": "gpt-6-astra",
+      "api_key_env": "OCTAVAPI_API_KEY",
+      "tier": "paid",
+      "privacy": "private",
+      "description": "GPT-6 Astra через шлюз OctavAPI: стратегия и второе мнение."
+    },
+    "octava_claude_opus": {
+      "type": "openai_compatible",
+      "account": "octavapi",
+      "base_url": "https://octavapi.shop/v1",
+      "base_url_env": "OCTAVAPI_BASE_URL",
+      "model": "claude-opus-5-5",
+      "api_key_env": "OCTAVAPI_API_KEY",
+      "tier": "paid",
+      "privacy": "private",
+      "description": "Claude Opus 5.5 через шлюз OctavAPI (так модель названа в шлюзе). Запасной путь, когда Claude Code CLI недоступен."
+    },
+    "claude": {
+      "type": "cli",
+      "account": "claude_cli",
+      "command": "claude",
+      "model": "opus",
+      "model_env": "CLAUDE_BRIDGE_MODEL",
+      "tier": "subscription",
+      "privacy": "private",
+      "description": "Claude Code CLI на этом компьютере: читает файлы проекта сам, работает по подписке Claude."
+    },
+    "groq": {
+      "type": "openai_compatible",
+      "account": "groq",
+      "base_url": "https://api.groq.com/openai/v1",
+      "model": "llama-3.3-70b-versatile",
+      "api_key_env": "GROQ_API_KEY",
+      "tier": "free",
+      "privacy": "private",
+      "description": "Llama 3.3 70B у Groq: очень быстрые ответы, бесплатный лимит."
+    },
+    "pollinations": {
+      "type": "openai_compatible",
+      "account": "pollinations",
+      "base_url": "https://text.pollinations.ai/openai",
+      "model": "openai-fast",
+      "tier": "free",
+      "privacy": "public",
+      "description": "Открытый шлюз без ключа. Запросы видит третья сторона: только для несекретных шаблонных задач.",
+      "chat_url": "https://text.pollinations.ai/openai"
+    }
+  }
+}

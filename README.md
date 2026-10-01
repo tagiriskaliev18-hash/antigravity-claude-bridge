@@ -106,3 +106,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
 | `desktop/ui/index.html` | Интерфейс |
 
 Команды: `python council_app.py --status` (сводка в консоли), `--wire` / `--unwire` (подключить или убрать журнал). Удаление: `%LOCALAPPDATA%\CouncilEngine\uninstall.ps1`.
+
+---
+
+## 🧠 Мультимодель ai-bridge 3
+
+Папка `multimodel/` — MCP-мост для Antigravity, который подключает Claude Code CLI и пулы моделей DeepSeek, GLM, MiniMax, Kimi, Qwen, GPT, Llama. Он заменяет `C:\projects\tools\claude_bridge.py`: инструменты `claude_review`, `claude_ask`, `claude_implement` остаются, добавляются роли, консилиум и учёт токенов.
+
+| Инструмент | Что делает |
+|---|---|
+| `agent_run(agent, task)` | Задача роли из `agents.json`. Роль идёт по своей цепочке пулов: если основной не ответил (нет ключа, лимит, ошибка), отвечает запасной |
+| `consilium(task)` | DeepSeek, GLM, MiniMax и Kimi отвечают одновременно, Claude как председатель пишет итог. Протокол сохраняется в `consilium\` |
+| `model_ask(provider, question)` | Вопрос одному пулу; `provider` можно указать словом: `deepseek`, `glm`, `minimax`, `kimi`, `qwen`, `gpt`, `claude` |
+| `models_list(check)` | Пулы, ключи (есть или нет, без значений), роли, токены; `check=true` проверяет шлюзы без расхода токенов |
+| `token_balance()` | Расход токенов по пулам и счетам, стоимость, остатки |
+| `model_switch(model)` | Пул по умолчанию для `model_ask` |
+| `agents_list`, `skills_list`, `soup_recipe` | Справочники |
+
+Ключей в репозитории нет: в `providers.json` у каждого пула указано имя переменной (`api_key_env`), а значение лежит в `C:\projects\tools\.env` только на этом компьютере.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-multimodel.ps1
+python C:\projects\tools\claude_bridge.py --keys    # ввести ключи, ввод скрыт
+python C:\projects\tools\claude_bridge.py --check   # по одному короткому запросу в каждый пул
+```
+
+После установки перезапусти Antigravity. Council Engine показывает роли, пулы, у каких пулов нет ключа, консилиум и токены из `token_usage.json`.
+

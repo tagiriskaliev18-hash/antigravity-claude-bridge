@@ -34,7 +34,7 @@ import urllib.request
 import webbrowser
 
 APP_NAME = "council-engine"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
 PORT = int(os.environ.get("COUNCIL_PORT", "47615"))
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 TAP = os.path.join(APP_DIR, "council_tap.py")
@@ -244,7 +244,8 @@ SECRET_KEY = re.compile(r"(key|token|secret|password|authorization|bearer)", re.
 
 
 def mask(value, key=""):
-    if SECRET_KEY.search(key or "") and isinstance(value, str):
+    # "api_key_env" and the like hold the NAME of a variable, not its value, so they stay readable
+    if SECRET_KEY.search(key or "") and not (key or "").lower().endswith("_env") and isinstance(value, str):
         return "***" if value else ""
     if isinstance(value, dict):
         return {k: mask(v, k) for k, v in value.items()}
@@ -283,12 +284,18 @@ def read_masked_json(path):
 
 
 def read_env_names(path):
+    """Variable names from .env, split into those with a value and empty ones. Values are never read out."""
+    filled, empty = [], []
     try:
-        names = [l.split("=", 1)[0].strip() for l in open(path, encoding="utf-8", errors="replace")
-                 if "=" in l and not l.lstrip().startswith("#")]
+        for line in open(path, encoding="utf-8-sig", errors="replace"):
+            if "=" not in line or line.lstrip().startswith("#"):
+                continue
+            name, value = line.split("=", 1)
+            name = name.strip()
+            (filled if value.strip().strip("\"'") else empty).append(name)
     except OSError:
-        names = []
-    return {"name": ".env", "path": path, "mtime": os.path.getmtime(path), "data": {"variables": names}}
+        pass
+    return {"name": ".env", "path": path, "mtime": os.path.getmtime(path), "data": {"variables": filled, "empty": empty}}
 
 
 def read_skill(path):
@@ -350,7 +357,24 @@ def read_system():
             v = cached_read(p, read_skill)
             if v:
                 skills.append(v)
-    return {"files": files, "skills": skills}
+    return {"files": files, "skills": skills, "keys": key_states(files)}
+
+
+def key_states(files):
+    """For every api_key_env named in providers.json: where its value is set (.env or the environment), or None."""
+    in_env_file = set()
+    for f in files:
+        if f["name"] == ".env":
+            in_env_file.update((f.get("data") or {}).get("variables") or [])
+    out = {}
+    for f in files:
+        if f["name"] != "providers.json" or not isinstance(f.get("data"), dict):
+            continue
+        for p in (f["data"].get("providers") or {}).values():
+            name = isinstance(p, dict) and p.get("api_key_env")
+            if isinstance(name, str) and name:
+                out[name] = "окружение" if os.environ.get(name) else ".env" if name in in_env_file else None
+    return out
 
 
 def parse_ts(v):
@@ -681,17 +705,20 @@ class Activity:
         """ai-bridge (claude_bridge.py v2) prints which role calls which pool and when it falls back."""
         m = re.search(r"Agent '([^']+)' calling provider '([^']+)'(?:\s*\(([^)]*)\))?", line)
         if m:
-            cur["agent"] = cur.get("agent") or m.group(1)
+            if not cur.get("consilium"):  # a consilium call has many roles; the route lists them
+                cur["agent"] = cur.get("agent") or m.group(1)
             cur["provider"] = m.group(2)
             cur.setdefault("route", []).append({"ts": ts, "agent": m.group(1), "provider": m.group(2),
                                                 "type": m.group(3), "ok": None})
             return
         m = re.search(r"Provider '([^']+)' (.+?), switching to fallback", line)
         if m:
-            for r in reversed(cur.get("route") or []):
-                if r["provider"] == m.group(1):
-                    r.update(ok=False, why=m.group(2))
-                    break
+            # in a consilium several roles run at once, so match the role too when the line names it
+            ma = re.search(r"\(agent '([^']+)'\)", line)
+            open_steps = [r for r in reversed(cur.get("route") or []) if r["provider"] == m.group(1) and r.get("ok") is None]
+            pick = next((r for r in open_steps if ma and r.get("agent") == ma.group(1)), open_steps[0] if open_steps else None)
+            if pick:
+                pick.update(ok=False, why=m.group(2))
             else:
                 cur.setdefault("route", []).append({"ts": ts, "agent": cur.get("agent"), "provider": m.group(1),
                                                     "ok": False, "why": m.group(2)})
@@ -1006,8 +1033,11 @@ def status():
     tu = (files.get("token_usage.json") or {}).get("data") or {}
     if pj or aj or tu:
         print("\nМультимодель:")
+        keys = st["system"].get("keys") or {}
         for pid, prov in (pj.get("providers") or {}).items():
-            print(f"  пул {pid}: {prov.get('model')}  {prov.get('base_url') or prov.get('command') or ''}")
+            env = prov.get("api_key_env")
+            key = "CLI" if prov.get("type") == "cli" else (f"ключ есть ({keys[env]})" if keys.get(env) else f"НЕТ КЛЮЧА {env}") if env else "ключ не нужен"
+            print(f"  пул {pid}: {prov.get('model')}  {prov.get('base_url') or prov.get('command') or ''}  {key}")
         for aid, ag in (aj.get("agents") or {}).items():
             chain = [ag.get("primary_provider")] + list(ag.get("fallback_providers") or [])
             print(f"  роль {aid}: {' > '.join(str(c) for c in chain if c)}")

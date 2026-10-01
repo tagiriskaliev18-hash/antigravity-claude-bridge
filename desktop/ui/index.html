@@ -289,7 +289,8 @@ const calls = () => ST?.activity.calls || [];
 const servers = () => CFG?.servers || [];
 const bridgeOf = s => s && s.file ? CFG.bridges[s.file] : null;
 const clientRunning = c => procs(c === "antigravity" ? "antigravity" : "claude").length > 0;
-const callAgent = c => c.agent || (c.route || []).find(r => r.agent)?.agent || null;
+const callAgent = c => c.consilium ? null : c.agent || (c.route || []).find(r => r.agent)?.agent || null;
+const councilRoles = c => [...new Set((c.route || []).map(r => r.agent).filter(Boolean))];
 const callProvs = c => [...new Set([...(c.route || []).map(r => r.provider), c.provider].filter(Boolean))];
 const callTok = c => { const e = ST?.activity.ledger_calls?.[c.id]; return e && e.length ? e.reduce((a, x) => a + (num(x.total_tokens) || 0), 0) : null; };
 const isRun = c => c.end == null && !c.orphan;
@@ -297,9 +298,9 @@ const callQuery = c => c.args?.task || c.args?.question || c.args?.instruction |
 
 function buildSystem(){
   const S = {providers:[], prov:{}, agents:[], agent:{}, skills:[], skill:{}, ledger:null, files:ST.system?.files || [],
-             defProv:null, defAgent:null, core:null, bridge:{}, tools:[], fam:{}, tokRows:[]};
+             defProv:null, defAgent:null, core:null, bridge:{}, tools:[], fam:{}, tokRows:[], council:null};
   const file = n => S.files.find(f => f.name === n && f.data && typeof f.data === "object");
-  const pf = file("providers.json"), pj = pf?.data;
+  const pf = file("providers.json"), pj = pf?.data, KS = ST.system?.keys || {};
   if (pj) {
     S.defProv = pj.default_provider || null;
     for (const [id, p] of Object.entries(pj.providers || {})) {
@@ -309,18 +310,23 @@ function buildSystem(){
       S.providers.push({id, type:p.type || "", base:p.base_url || "", host:hostOf(p.base_url), model, models:p.models || (model ? [model] : []),
         tier:p.tier || "", privacy:p.privacy || "", desc:p.description || "", command:p.command || "", isDefault:id === S.defProv,
         cli:p.type === "cli", fam, alias:nameFam !== "other" && nameFam !== fam ? nameFam : null,
-        keyInline:typeof p.api_key === "string" && p.api_key !== "", keyEnv:!!p.api_key_env, usedBy:[]});
+        keyInline:typeof p.api_key === "string" && p.api_key !== "", keyEnv:!!p.api_key_env, keyName:typeof p.api_key_env === "string" ? p.api_key_env : "",
+        keyState:p.type === "cli" ? "cli" : typeof p.api_key === "string" && p.api_key ? "inline" : !p.api_key_env ? "none" : KS[p.api_key_env] ? "set" : "missing",
+        keySrc:KS[p.api_key_env] || null, account:p.account || null, rate:p.units_per_token ?? null, usedBy:[]});
     }
   }
   if (!S.providers.length) Object.values(CFG.bridges || {}).forEach(b => (b.providers || []).forEach(p => {
     const model = (p.models || []).includes(b.default_model) ? b.default_model : (p.models || [])[0] || "";
     S.providers.push({id:p.name, type:"openai_compatible", base:p.base_url, host:hostOf(p.base_url), model, models:p.models || [], tier:"приоритет "+(p.priority ?? "—"),
-      privacy:"", desc:"", isDefault:false, cli:false, fam:famOf(model || p.name), alias:null, keyInline:false, keyEnv:p.has_key, usedBy:[]});
+      privacy:"", desc:"", isDefault:false, cli:false, fam:famOf(model || p.name), alias:null, keyInline:false, keyEnv:p.has_key, keyName:"", keyState:p.has_key ? "set" : "missing", keySrc:p.has_key ? "в коде моста" : null, usedBy:[]});
   }));
   S.providers.forEach(p => S.prov[p.id] = p);
   const aj = file("agents.json")?.data;
   if (aj) {
     S.defAgent = aj.default_agent || null;
+    const cc = aj.consilium && typeof aj.consilium === "object" ? aj.consilium : null;
+    const mem = cc ? (Array.isArray(cc.members) ? cc.members : String(cc.members || "").split(",")).map(x => String(x).trim()).filter(Boolean) : [];
+    S.council = cc ? {members:mem, chair:cc.chair || mem[0] || null, note:cc.note || "", parallel:true} : null;
     for (const [id, a] of Object.entries(aj.agents || {})) {
       if (!a || typeof a !== "object") continue;
       const primary = a.primary_provider || a.provider || a.model || null;
@@ -342,7 +348,8 @@ function buildSystem(){
     const p = S.prov[key] || null;
     S.tokRows.push({key, p, via:p ? [] : S.providers.filter(x => x.model === key), model:r.model, fam:p ? p.fam : famOf(r.model || key),
       requests:num(r.requests), prompt:num(r.prompt_tokens), completion:num(r.completion_tokens), total:num(r.total_tokens),
-      cost:num(r.cost_usd), remaining:num(r.remaining_units), credit:r.last_credit});
+      cost:num(r.cost_usd), remaining:num(r.remaining_units), credit:r.last_credit, errors:num(r.errors), lastOk:r.last_ok || null,
+      lastErrAt:r.last_error_at || null, lastErr:r.last_error || null, noUsage:num(r.requests_without_usage)});
   }
   // the server that owns providers.json is the core of the system; otherwise the bridge with the most tools
   const srv = servers();
@@ -353,14 +360,22 @@ function buildSystem(){
     const pools = S.providers.filter(p => p.fam === k);
     const roles = S.agents.filter(a => a.chain.some(id => S.prov[id]?.fam === k));
     const rows = S.tokRows.filter(r => r.fam === k);
-    S.fam[k] = {key:k, pools, roles, primaryRoles:S.agents.filter(a => S.prov[a.primary]?.fam === k),
+    S.fam[k] = {key:k, pools, live:pools.filter(p => p.keyState !== "missing").length, roles, primaryRoles:S.agents.filter(a => S.prov[a.primary]?.fam === k),
       tokens:rows.reduce((a, r) => a + (r.total || 0), 0), requests:rows.reduce((a, r) => a + (r.requests || 0), 0),
       cost:rows.reduce((a, r) => a + (r.cost || 0), 0), shown:ALWAYS.includes(k) || pools.length > 0 || rows.length > 0};
   }
+  if (!S.council && S.agents.length) S.council = {members:["architect","developer","reviewer"].filter(id => S.agent[id]), chair:null, note:"", parallel:false};
   S.history = (S.ledger?.history || []).filter(e => e && typeof e === "object").map(e => ({...e, ts:histTs(e.timestamp), fam:S.prov[e.provider]?.fam || famOf(e.model || e.provider)}));
   return S;
 }
 const famList = () => FAM_ORDER.filter(k => SYS.fam[k].shown);
+const famOff = f => !f.pools.length || !f.live;
+const famSub = (f, tail) => !f.pools.length ? "не подключена" : !f.live ? "нет ключа" : f.pools.length+" "+plural(f.pools.length,"пул","пула","пулов")+(tail ? tail(f) : "");
+const keyTag = p => p.keyState === "missing" ? `<span class="tag bad">нет ключа${p.keyName ? ": "+esc(p.keyName) : ""}</span>` : p.keyState === "set" ? `<span class="tag ok">ключ есть</span>` : p.keyState === "inline" ? `<span class="tag warn">ключ в файле</span>` : "";
+const keyText = p => ({cli:"не нужен: локальный Claude Code CLI", none:"не нужен", inline:"записан прямо в providers.json",
+  set:"есть" + (p.keyName ? " ("+p.keyName+(p.keySrc ? ", "+p.keySrc : "")+")" : p.keySrc ? " ("+p.keySrc+")" : ""),
+  missing:"нет: переменная "+(p.keyName || "?")+" не задана. Ввести: python C:\\projects\\tools\\claude_bridge.py --keys"})[p.keyState] || "—";
+const isInCouncil = id => !!SYS.council && (SYS.council.members.includes(id) || SYS.council.chair === id);
 const agentCalls = id => calls().filter(c => callAgent(c) === id || (c.route || []).some(r => r.agent === id));
 const provCalls = id => calls().filter(c => callProvs(c).includes(id));
 const provTok = id => SYS.tokRows.find(r => r.key === id) || null;
@@ -376,9 +391,9 @@ function renderRail(){
     b.onclick = () => setView(id); v.append(b);
   });
   $("#fams").innerHTML = famList().map(k => {
-    const f = SYS.fam[k], off = !f.pools.length;
+    const f = SYS.fam[k], off = famOff(f);
     return `<button class="fam${off ? " off" : ""}" data-open="fam:${k}"><span class="sw" style="background:${off ? "transparent" : FAM[k].c};border:1px solid ${FAM[k].c};box-shadow:${off ? "none" : "0 0 8px "+FAM[k].c}"></span><b>${esc(FAM[k].n)}</b>
-      <small>${off ? "не подключена" : f.pools.length+" "+plural(f.pools.length,"пул","пула","пулов")+" · "+fmtTok(f.tokens)}</small></button>`;
+      <small>${famSub(f, f => " · "+fmtTok(f.tokens))}</small></button>`;
   }).join("");
   $("#host").textContent = "// " + (CFG.host || "этот компьютер");
   renderLive();
@@ -424,7 +439,7 @@ function renderTicker(){
   const cs = calls().slice(0, 14);
   const html = cs.length ? cs.map(c => {
     const a = callAgent(c), pv = callProvs(c).slice(-1)[0], tk = callTok(c);
-    return `<span>${fmtTime(c.start)} · ${esc(CLIENT[c.client]?.n || c.client)} → <b>${esc(c.tool)}</b>${a ? " · роль "+esc(a) : ""}${pv ? " · "+esc(pv) : ""} · ${isRun(c) ? "<em>идёт</em>" : c.orphan ? `<i class="x">оборван</i>` : c.error ? `<i class="x">ошибка</i>` : fmtMs(c.ms)}${tk ? " · "+fmtN(tk)+" ток." : ""}</span>`;
+    return `<span>${fmtTime(c.start)} · ${esc(CLIENT[c.client]?.n || c.client)} → <b>${esc(c.tool)}</b>${a ? " · роль "+esc(a) : c.consilium ? " · консилиум" : ""}${pv ? " · "+esc(pv) : ""} · ${isRun(c) ? "<em>идёт</em>" : c.orphan ? `<i class="x">оборван</i>` : c.error ? `<i class="x">ошибка</i>` : fmtMs(c.ms)}${tk ? " · "+fmtN(tk)+" ток." : ""}</span>`;
   }).join("") : `<span>журнал пуст: вызовов моста ещё не было. Как только Antigravity обратится к ${esc(SYS.core?.name || "мосту")}, вызов появится здесь.</span>`;
   const L = SYS.ledger?.total_stats;
   const tail = L ? `<span>учёт токенов: <b>${fmtN(L.total_tokens)}</b> токенов за ${fmtN(L.total_requests)} запросов · ${fmtUsd(L.total_cost_usd)}</span>` : "";
@@ -465,7 +480,8 @@ function viewRoles(){
   if (!SYS.agents.length) return `<div class="empty">Файл agents.json рядом с мостом не найден, поэтому ролей нет. Приложение ищет его в папке, где лежит файл MCP-моста.</div>`;
   const ag = procs("antigravity").length, core = SYS.core;
   const consilium = SYS.tools.find(t => t.name === "consilium");
-  const cons = ["architect","developer","reviewer"].filter(id => SYS.agent[id]);
+  const C = SYS.council, cons = (C?.members || []).filter(id => SYS.agent[id]), chair = C?.chair && SYS.agent[C.chair] ? SYS.agent[C.chair] : null;
+  const chipOf = a => `<button class="chip" data-open="role:${esc(a.id)}" style="border-color:${hexA(FAM[a.fam].c,.6)}">${sw(a.fam)}${esc(a.name)}</button>`;
   const tiers = CFG.tiers || [];
   return `<div class="tree">
       <div class="tnode" data-open="how"><b>Ты · оператор</b><span>ставишь задачу в чате Antigravity</span></div><div class="tlink"></div>
@@ -484,9 +500,11 @@ function viewRoles(){
         ${a.skills.length ? `<div class="chain">${a.skills.map(k => `<span class="chip" style="border-color:rgba(252,238,10,.4);color:var(--yellow)">◆ ${esc(k)}</span>`).join("")}</div>` : ""}
       </div>`; }).join("")}</div>
     <p class="note" style="margin-top:12px">Цепочка читается слева направо: первым идёт основной пул, дальше запасные. Если пул ответил ошибкой или лимитом, мост пишет в журнал «switching to fallback» и пробует следующий.</p>
-    ${consilium ? `<h3 class="sec">Консилиум <small>инструмент consilium(task)</small></h3>
-      <div class="row">${cons.map((id, i) => `${i ? '<span class="arrow">→</span>' : ""}<button class="chip" data-open="role:${esc(id)}" style="border-color:${hexA(FAM[SYS.agent[id].fam].c,.6)}">${sw(SYS.agent[id].fam)}${esc(SYS.agent[id].name)}</button>`).join("")}</div>
-      <p class="note" style="margin-top:8px">${esc(consilium.description || "")}<br>По коду моста (проверено 1 октября): роли отвечают по очереди, каждая со своей цепочкой пулов. Строка «консенсус» в итоговом ответе заготовлена в коде, модели не голосуют.</p>` : ""}
+    ${consilium && C ? `<h3 class="sec">Консилиум <small>инструмент consilium(task)${C.parallel ? " · состав из agents.json" : ""}</small></h3>
+      ${C.parallel ? `<div class="row">${cons.map(id => chipOf(SYS.agent[id])).join('<span class="arrow">+</span>')}${chair ? `<span class="arrow">⇒</span><span class="faint" style="font-size:12px">председатель</span>${chipOf(chair)}` : ""}</div>
+      <p class="note" style="margin-top:8px">${esc(consilium.description || "")}${C.note ? "<br>"+esc(C.note) : ""}<br>Каждый участник идёт по своей цепочке пулов. Если основной пул не ответил (нет ключа, лимит), отвечает запасной, и в итоге консилиума это видно в таблице «Ответил пул». Полный протокол каждого заседания мост сохраняет в папку consilium рядом с собой.</p>`
+      : `<div class="row">${cons.map(id => chipOf(SYS.agent[id])).join('<span class="arrow">→</span>')}</div>
+      <p class="note" style="margin-top:8px">${esc(consilium.description || "")}<br>По коду этой версии моста: роли отвечают по очереди, каждая со своей цепочкой пулов. Строка «консенсус» в итоговом ответе заготовлена в коде, модели не голосуют.</p>`}` : ""}
     ${tiers.length ? `<h3 class="sec">Правила Antigravity <small>из GEMINI.md: когда и кого звать</small></h3>
       <div class="list">${tiers.map(t => `<div><b style="white-space:nowrap">${esc(t.name)}</b><span class="muted">${esc(t.text)}</span></div>`).join("")}</div>` : ""}`;
 }
@@ -500,7 +518,7 @@ function provCard(p){
     <div class="id">${esc(p.model || "модель не указана")} · ${esc(p.cli ? "локальный CLI: "+(p.command || "") : p.host || "адрес не указан")}</div>
     ${p.desc ? `<p>${esc(p.desc)}</p>` : ""}
     <div class="row">${p.tier ? `<span class="tag ${/free/i.test(p.tier) ? "ok" : /paid|active/i.test(p.tier) ? "pk" : ""}">${esc(p.tier)}</span>` : ""}${p.privacy ? `<span class="tag">${esc(p.privacy)}</span>` : ""}
-      ${p.cli ? `<span class="tag ${cliOk() ? "ok" : "bad"}">${cliOk() ? "CLI найден" : "CLI не установлен"}</span>` : ""}
+      ${p.cli ? `<span class="tag ${cliOk() ? "ok" : "bad"}">${cliOk() ? "CLI найден" : "CLI не установлен"}</span>` : keyTag(p)}
       ${r ? `<span class="tag cy">${fmtTok(r.total)} ток. · ${fmtN(r.requests)} запр.</span>` : `<span class="tag">токенов не записано</span>`}</div>
     <div class="faint" style="font-size:12px">${users.length ? users.join(" · ") : "ни одна роль не использует"}</div>
   </div>`;
@@ -509,7 +527,7 @@ function viewModels(){
   if (!SYS.providers.length) return `<div class="empty">Пулы моделей не найдены: рядом с мостом нет providers.json.</div>`;
   return `<p class="lead">Каждый пул: адрес API и модель из providers.json. Цвет означает семейство модели, которая реально отвечает (по полю model), а не имя пула. Описания семейств ниже помечены как справка: это общие сведения, их нет в твоих файлах.</p>` +
     famList().map(k => { const f = SYS.fam[k], F = FAM[k];
-      return `<h3 class="sec" style="color:${F.c}">${esc(F.n)} <small>${esc(F.vendor)} · ${f.pools.length ? f.pools.length+" "+plural(f.pools.length,"пул","пула","пулов")+" · "+fmtTok(f.tokens)+" токенов" : "не подключена"}</small></h3>
+      return `<h3 class="sec" style="color:${F.c}">${esc(F.n)} <small>${esc(F.vendor)} · ${esc(famSub(f, f => " · "+fmtTok(f.tokens)+" токенов"))}</small></h3>
         <p class="note"><span class="ref">справка:</span> ${esc(F.about)}${f.primaryRoles.length ? `<br><span class="ref">у тебя:</span> основная модель для ролей ${f.primaryRoles.map(a => esc(a.name)).join(", ")}.` : f.roles.length ? `<br><span class="ref">у тебя:</span> запасная в цепочках ролей ${f.roles.map(a => esc(a.name)).join(", ")}.` : ""}</p>
         ${f.pools.length ? `<div class="grid" style="margin-top:10px">${f.pools.map(provCard).join("")}</div>`
           : `<p class="empty">В providers.json нет ни одного пула с моделью ${esc(F.n)}. Чтобы подключить, нужен API-ключ и адрес провайдера: добавлю пул в providers.json и в цепочки нужных ролей.</p>`}`;
@@ -531,6 +549,18 @@ function tokenChart(){
         <text x="${x+bw/2}" y="${ch+36}" fill="#4f5a88" font-size="8" text-anchor="middle" font-family="JetBrains Mono, monospace">${esc(String(e.timestamp || "").slice(8, 10)+"."+String(e.timestamp || "").slice(5, 7))}</text></g>`; }).join("")}
   </svg><div class="faint" style="font-size:12px;margin-top:4px">Каждый столбик: один ответ модели. Светлая часть: токены ответа, тёмная: токены запроса. Наведи, чтобы увидеть пул и модель.</div></div>`;
 }
+function accountCards(L){
+  const accs = Object.entries(L.accounts || {}).map(([k, a]) => ({k, ...a, pools:(a.providers || []).map(id => SYS.prov[id]).filter(Boolean)}))
+    .filter(a => a.pools.some(p => !p.cli && p.tier !== "free"));
+  const credits = SYS.tokRows.filter(r => r.credit != null);
+  if (!accs.length && !credits.length) return `<div class="empty">Счетов в providers.json нет.</div>`;
+  return `<div class="grid">${accs.map(a => { const fam = a.pools[0]?.fam || "other", c = FAM[fam].c, init = num(a.initial_units), rem = num(a.remaining_units);
+    return `<div class="card" style="--c:${c}"><h4>${esc(a.title || a.k)}</h4>
+      <div class="id">${init != null ? `осталось ${a.estimate ? "≈" : ""}${fmtN(rem)} из ${fmtN(init)} единиц` : "начальный баланс не указан"} · пулы: ${a.pools.map(p => esc(p.id)).join(", ")}</div>
+      ${init != null ? `<div class="bar" style="--c:${c}"><i style="width:${init ? Math.max(1, Math.min(100, rem/init*100)) : 0}%"></i></div>` : ""}
+      <p>${init != null ? "Остаток считает мост: баланс, введённый в providers.json, минус расход после ввода. У провайдера он не проверяется." : "Чтобы видеть остаток, впиши баланс счёта в providers.json → accounts → balance_units."}${a.note && init != null ? " "+esc(a.note)+"." : ""} Потрачено всего: ${fmtN(a.units_used)} ед.</p></div>`; }).join("")}
+    ${credits.map(r => `<div class="card" style="--c:${FAM[r.fam].c}" data-open="pool:${esc(r.key)}"><h4>${esc(r.key)}</h4><div class="id">credit из последнего ответа API: ${esc(r.credit)}</div><p>Это значение провайдер прислал в поле usage. Что именно оно означает, знает только провайдер.</p></div>`).join("")}</div>`;
+}
 function viewTokens(){
   const L = SYS.ledger;
   if (!L) return `<div class="empty">Файл учёта token_usage.json рядом с мостом не найден. Его пишет мост ai-bridge после каждого ответа модели с полем usage. Пока файла нет, токены не на чем считать.</div>`
@@ -549,17 +579,17 @@ function viewTokens(){
       <div class="kv1 yl"><b>${fmtUsd(T.total_cost_usd)}</b><span>стоимость по ответам API</span></div>
     </div>
     <h3 class="sec">Балансы <small>initial_balances и остатки из token_usage.json</small></h3>
-    <div class="grid">${xy ? `<div class="card" style="--c:${FAM[xy.fam].c}" data-open="pool:${esc(xy.key)}"><h4>${esc(xy.key)}</h4>
+    ${L.accounts ? accountCards(L) : `<div class="grid">${xy ? `<div class="card" style="--c:${FAM[xy.fam].c}" data-open="pool:${esc(xy.key)}"><h4>${esc(xy.key)}</h4>
         <div class="id">осталось ${fmtN(xy.remaining)} из ${fmtN(IB.xyvero_units)} единиц</div>
         <div class="bar" style="--c:${FAM[xy.fam].c}"><i style="width:${IB.xyvero_units ? Math.max(1, xy.remaining/IB.xyvero_units*100) : 0}%"></i></div>
         <p>Остаток считает сам мост: начальный баланс минус токены, записанные для этого пула. Проверки у провайдера нет.</p></div>` : ""}
       ${Object.entries(IB).filter(([k]) => !/xyvero/i.test(k) || !xy).map(([k, v]) => `<div class="card" style="--c:var(--yellow)"><h4>${esc(k)}</h4><div class="id">начальное значение в файле: ${esc(v)}</div><p>Мост хранит это число, но не уменьшает его при расходе.</p></div>`).join("")}
       ${rows.filter(r => r.credit != null).map(r => `<div class="card" style="--c:${FAM[r.fam].c}" data-open="pool:${esc(r.key)}"><h4>${esc(r.key)}</h4><div class="id">credit из последнего ответа API: ${esc(r.credit)}</div><p>Это значение провайдер прислал в поле usage. Что именно оно означает, знает только провайдер.</p></div>`).join("")}
-    </div>
+    </div>`}
     <h3 class="sec">По семействам</h3>
     <div class="list">${famRows.map(f => `<button data-open="fam:${f.key}" style="align-items:center">${sw(f.key)}<b style="min-width:90px">${esc(FAM[f.key].n)}</b>
       <span class="bar" style="flex:1;--c:${FAM[f.key].c}"><i style="width:${f.tokens/famMax*100}%"></i></span>
-      <span class="r">${f.pools.length ? fmtN(f.tokens)+" ток. · "+fmtN(f.requests)+" запр. · "+fmtUsd(f.cost) : "не подключена"}</span></button>`).join("")}</div>
+      <span class="r">${f.requests ? fmtN(f.tokens)+" ток. · "+fmtN(f.requests)+" запр. · "+fmtUsd(f.cost) : esc(famSub(f))}</span></button>`).join("")}</div>
     <h3 class="sec">По пулам <small>by_provider</small></h3>
     <table><thead><tr><th>Пул</th><th>Модель (как ответил API)</th><th class="num">Запросов</th><th class="num">Вход</th><th class="num">Выход</th><th class="num">Всего</th><th class="num">Стоимость</th><th style="width:18%"></th></tr></thead><tbody>
     ${rows.map(r => `<tr ${r.p ? `data-open="pool:${esc(r.key)}"` : ""}><td>${sw(r.fam)} ${esc(r.key)}${!r.p ? `<div class="faint" style="font-size:12px">${r.via.length ? "записано по имени модели: так мост пишет вызовы через Claude-шлюз (пулы "+r.via.map(p => esc(p.id)).join(", ")+")" : "пула с таким именем нет в providers.json"}</div>` : ""}</td>
@@ -588,7 +618,7 @@ function viewLog(){
     ${cs.map(c => { const a = callAgent(c), pv = callProvs(c), tk = callTok(c), fails = (c.route || []).filter(r => r.ok === false).length;
       const st = isRun(c) ? `<span class="tag warn">идёт</span>` : c.orphan ? `<span class="tag bad">оборван</span>` : c.error ? `<span class="tag bad">ошибка</span>` : `<span class="tag ok">готово</span>`;
       return `<tr data-open="call:${esc(c.id)}"><td class="mono muted">${fmtTime(c.start)}</td><td>${esc(CLIENT[c.client]?.n || c.client)}</td><td class="mono">${esc(c.tool)}</td>
-        <td>${a ? esc(SYS.agent[a]?.name || a) : `<span class="faint">—</span>`}</td><td class="mono">${pv.length ? pv.map(esc).join(" › ") : `<span class="faint">—</span>`}${fails ? ` <span class="tag warn">${fails} запасн.</span>` : ""}${c.cli_missing ? ` <span class="tag warn">без CLI</span>` : ""}</td>
+        <td>${a ? esc(SYS.agent[a]?.name || a) : c.consilium ? `консилиум <span class="faint">(${councilRoles(c).length} ${plural(councilRoles(c).length,"роль","роли","ролей")})</span>` : `<span class="faint">—</span>`}</td><td class="mono">${pv.length ? pv.map(esc).join(" › ") : `<span class="faint">—</span>`}${fails ? ` <span class="tag warn">${fails} запасн.</span>` : ""}${c.cli_missing ? ` <span class="tag warn">без CLI</span>` : ""}</td>
         <td class="num">${fmtMs(c.ms)}</td><td class="num">${tk ? fmtN(tk) : "—"}</td><td>${st}</td><td class="trunc muted">${esc(callQuery(c))}</td></tr>`; }).join("")}
     </tbody></table>` : `<div class="empty">Вызовов пока не было. Как только Antigravity или Claude Code обратятся к мосту, вызов появится здесь и в бегущей строке внизу.</div>`);
 }
@@ -708,9 +738,9 @@ function dRole(id){
     const fails = cs.reduce((n, c) => n + (c.route || []).filter(x => x.provider === pid && x.ok === false).length, 0);
     return `<button class="step" data-open="pool:${esc(pid)}" style="--c:${FAM[k].c}"><span class="n">${String(i+1).padStart(2, "0")}</span><span><b>${esc(pid)}</b> <span class="muted">${i === 0 ? "основной" : "запасной"}</span>
       <small>${p ? esc(p.model)+" · "+esc(FAM[k].n)+(p.cli ? " · CLI "+(cliOk() ? "найден" : "не установлен") : " · "+esc(p.host)) : "пула нет в providers.json"}${r ? " · "+fmtTok(r.total)+" ток." : ""}${fails ? " · переходов дальше: "+fails : ""}</small></span></button>`; }).join("");
-  const inCons = ["architect","developer","reviewer"].includes(id) && SYS.tools.some(t => t.name === "consilium");
+  const inCons = isInCouncil(id) && SYS.tools.some(t => t.name === "consilium");
   return ["роль", `<h2>${esc(a.full)}</h2>
-    <div class="meta"><span class="tag cy">${esc(a.id)}</span>${a.isDefault ? `<span class="tag pk">роль по умолчанию</span>` : ""}<span class="tag ${a.write ? "warn" : ""}">${a.write ? "может менять файлы" : "только чтение"}</span>${inCons ? `<span class="tag">участник консилиума</span>` : ""}</div>
+    <div class="meta"><span class="tag cy">${esc(a.id)}</span>${a.isDefault ? `<span class="tag pk">роль по умолчанию</span>` : ""}<span class="tag ${a.write ? "warn" : ""}">${a.write ? "может менять файлы" : "только чтение"}</span>${inCons ? `<span class="tag">${SYS.council.chair === id ? "председатель консилиума" : "участник консилиума"}</span>` : ""}</div>
     <div class="blk"><h5>Что делает</h5><p>${esc(a.desc || "Описания в agents.json нет.")}</p></div>
     <div class="blk"><h5>Цепочка моделей</h5><div class="ladder">${steps || `<div class="step"><span class="n">—</span><span>пулы не указаны</span></div>`}</div>
       <p class="faint" style="font-size:12px;margin-top:6px">Мост зовёт пулы сверху вниз и переходит к следующему, если пул ответил ошибкой или лимитом.</p></div>
@@ -731,7 +761,8 @@ function dPool(id){
     ${p.desc ? `<div class="blk"><h5>Описание из providers.json</h5><p>${esc(p.desc)}</p></div>` : ""}
     <div class="blk"><h5>Подключение</h5><dl class="kv"><dt>Модель</dt><dd class="mono">${esc(p.model || "—")}</dd><dt>Тип</dt><dd>${esc(p.type || "—")}</dd>
       ${p.cli ? `<dt>Команда</dt><dd class="mono">${esc(p.command)}</dd><dt>CLI на ПК</dt><dd>${cliOk() ? esc(CFG.claude_cli) : "не найден"}</dd>` : `<dt>Адрес</dt><dd class="mono">${esc(p.base || "—")}</dd>`}
-      <dt>Ключ</dt><dd>${p.cli ? "не нужен" : p.keyInline ? "записан в providers.json" : p.keyEnv ? "берётся из переменной окружения" : "не указан"}</dd></dl></div>
+      <dt>Ключ</dt><dd>${esc(keyText(p))}</dd>${p.account ? `<dt>Счёт</dt><dd>${esc(SYS.ledger?.accounts?.[p.account]?.title || p.account)}${p.rate != null ? " · "+esc(p.rate)+" ед. за токен" : ""}</dd>` : ""}</dl></div>
+    ${r && (r.lastOk || r.lastErrAt) ? `<div class="blk"><h5>Последние ответы</h5><dl class="kv">${r.lastOk ? `<dt>Успешный</dt><dd>${esc(r.lastOk)}</dd>` : ""}${r.lastErrAt ? `<dt>Ошибка</dt><dd>${esc(r.lastErrAt)} · ${esc((r.lastErr || "").slice(0, 160))}</dd>` : ""}${r.errors ? `<dt>Ошибок всего</dt><dd>${fmtN(r.errors)}</dd>` : ""}</dl></div>` : ""}
     <div class="blk"><h5>Кто использует</h5>${p.usedBy.length ? `<div class="list">${p.usedBy.map(u => `<button data-open="role:${esc(u.agent)}">${esc(SYS.agent[u.agent]?.name || u.agent)}<span class="r">${u.pos === 0 ? "основной" : "запасной №"+u.pos}</span></button>`).join("")}</div>` : `<div class="empty">Ни одна роль. Пул можно вызвать напрямую: model_ask(provider="${esc(p.id)}").</div>`}</div>
     <div class="blk"><h5>Токены</h5>${tokBlock(r)}${last ? `<p class="faint" style="font-size:12px;margin-top:6px">Последний ответ с учётом: ${esc(last.timestamp)}</p>` : ""}</div>
     <div class="blk"><h5>Справка о семействе</h5><p class="muted">${esc(F.vendor)}. ${esc(F.about)}</p></div>
@@ -740,7 +771,7 @@ function dPool(id){
 function dFam(k){
   const F = FAM[k], f = SYS.fam[k];
   return ["семейство моделей", `<h2 style="color:${F.c}">${esc(F.n)}</h2>
-    <div class="meta"><span class="tag">${esc(F.vendor)}</span>${f.pools.length ? `<span class="tag ok">подключено: ${f.pools.length}</span>` : `<span class="tag bad">не подключена</span>`}</div>
+    <div class="meta"><span class="tag">${esc(F.vendor)}</span>${!f.pools.length ? `<span class="tag bad">не подключена</span>` : f.live ? `<span class="tag ok">с ключом: ${f.live} из ${f.pools.length}</span>` : `<span class="tag bad">нет ключа</span>`}</div>
     <div class="blk"><h5>Справка</h5><p class="muted">${esc(F.about)}</p></div>
     <div class="blk"><h5>Пулы у тебя</h5>${f.pools.length ? `<div class="list">${f.pools.map(p => `<button data-open="pool:${esc(p.id)}">${esc(p.id)}<span class="muted">${esc(p.model)}</span><span class="r">${fmtTok(provTok(p.id)?.total)} ток.</span></button>`).join("")}</div>`
       : `<div class="empty">В providers.json нет пула с моделью ${esc(F.n)}. Чтобы подключить: нужен API-ключ и адрес провайдера. Пул добавляется в providers.json (type, base_url, model, api_key_env), а затем в цепочки нужных ролей в agents.json.</div>`}</div>
@@ -794,7 +825,7 @@ function dCall(id){
   return ["вызов", `<h2 class="mono">${esc(c.tool)}</h2>
     <div class="meta">${isRun(c) ? `<span class="tag warn">идёт ${esc(fmtAgo(c.start).replace(" назад", ""))}</span>` : c.orphan ? `<span class="tag bad">оборван: процесс моста завершился без ответа</span>` : c.error ? `<span class="tag bad">ошибка</span>` : `<span class="tag ok">готово</span>`}<span class="tag">${esc(c.server)}</span>${c.consilium ? `<span class="tag pk">консилиум</span>` : ""}${c.cli_missing ? `<span class="tag warn">Claude CLI не найден: ушло в шлюз</span>` : ""}${c.limit ? `<span class="tag bad">лимит: ${esc(c.limit)}</span>` : ""}</div>
     <div class="blk"><h5>Кто и когда</h5><dl class="kv"><dt>Вызвал</dt><dd>${esc(CLIENT[c.client]?.n || c.client)}${c.client_info ? ` <span class="faint">(${esc(c.client_info)})</span>` : ""}</dd>
-      <dt>Начало</dt><dd>${new Date(c.start*1000).toLocaleString("ru-RU")}</dd><dt>Длилось</dt><dd>${fmtMs(c.ms)}</dd>${callAgent(c) ? `<dt>Роль</dt><dd>${esc(callAgent(c))}</dd>` : ""}${c.chars != null ? `<dt>Ответ</dt><dd>${fmtN(c.chars)} символов</dd>` : ""}</dl></div>
+      <dt>Начало</dt><dd>${new Date(c.start*1000).toLocaleString("ru-RU")}</dd><dt>Длилось</dt><dd>${fmtMs(c.ms)}</dd>${callAgent(c) ? `<dt>Роль</dt><dd>${esc(callAgent(c))}</dd>` : c.consilium ? `<dt>Роли</dt><dd>${esc(councilRoles(c).join(", "))}</dd>` : ""}${c.chars != null ? `<dt>Ответ</dt><dd>${fmtN(c.chars)} символов</dd>` : ""}</dl></div>
     ${route ? `<div class="blk"><h5>Маршрут по пулам</h5><div class="ladder">${route}</div></div>` : c.provider ? `<div class="blk"><h5>Пул</h5><p class="mono">${esc(c.provider)}</p></div>` : ""}
     <div class="blk"><h5>Токены</h5>${led.length ? `<div class="list">${led.map(e => `<div>${esc(e.provider)}<span class="muted mono">${esc(e.model)}</span><span class="r">${fmtN(e.prompt_tokens)} + ${fmtN(e.completion_tokens)} = ${fmtN(e.total_tokens)} · ${fmtUsd(e.cost)}</span></div>`).join("")}</div>`
       : (c.usage || []).length ? `<div class="list">${c.usage.map(u => `<div>${esc(u.model || "")}<span class="r">${fmtN(u.prompt)} + ${fmtN(u.completion)} = ${fmtN(u.total)}</span></div>`).join("")}</div>`
@@ -869,7 +900,7 @@ function syncNodes(){
   SYS.providers.slice().sort((a, b) => fo.indexOf(a.fam) - fo.indexOf(b.fam) || a.id.localeCompare(b.id)).forEach((p, i, arr) =>
     node("p:"+p.id, {type:"pool", key:p.id, label:p.id, sub:p.model, color:FAM[p.fam].c, idx:i, of:arr.length, dflt:p.isDefault, alias:!!p.alias, dead:p.cli && !cliOk()}));
   SYS.agents.forEach((a, i) => node("r:"+a.id, {type:"role", key:a.id, label:a.name, sub:a.id, color:FAM[a.fam].c, idx:i, of:SYS.agents.length, dflt:a.isDefault}));
-  FAM_ORDER.forEach(k => node("f:"+k, {type:"family", key:k, label:FAM[k].n, sub:SYS.fam[k].pools.length ? SYS.fam[k].pools.length+" "+plural(SYS.fam[k].pools.length,"пул","пула","пулов") : "не подключена", color:FAM[k].c}));
+  FAM_ORDER.forEach(k => node("f:"+k, {type:"family", key:k, label:FAM[k].n, sub:famSub(SYS.fam[k]), color:FAM[k].c}));
   SYS.tools.forEach(t => node("t:"+t.name, {type:"tool", key:t.name, label:t.name, color:"#3dffa8"}));
   SYS.skills.forEach(k => node("k:"+k.name, {type:"skill", key:k.name, label:k.name, color:"#fcee0a"}));
   for (const [id, n] of NODES) if (!n.seen) NODES.delete(id);
@@ -1117,7 +1148,7 @@ function boot(){
     `<span class="p">&gt;</span> ${esc(dots("пулы моделей", 26))}${SYS.providers.length}${famTxt ? " ("+esc(famTxt)+")" : ""}`,
     `<span class="p">&gt;</span> ${esc(dots("роли", 26))}${SYS.agents.length}`,
     `<span class="p">&gt;</span> ${esc(dots("токены", 26))}${T ? fmtN(T.total_tokens)+" · "+fmtUsd(T.total_cost_usd) : "учёт не найден"}`,
-    ...ALWAYS.filter(k => !SYS.fam[k].pools.length).map(k => `<span class="p">&gt;</span> ${esc(dots(FAM[k].n.toLowerCase(), 26))}<span class="r">НЕ ПОДКЛЮЧЕНА</span>`),
+    ...ALWAYS.filter(k => famOff(SYS.fam[k])).map(k => `<span class="p">&gt;</span> ${esc(dots(FAM[k].n.toLowerCase(), 26))}<span class="r">${SYS.fam[k].pools.length ? "НЕТ КЛЮЧА" : "НЕ ПОДКЛЮЧЕНА"}</span>`),
     `<span class="p">&gt;</span> ${esc(dots("claude cli", 26))}${cliOk() ? `<span class="g">найден</span>` : `<span class="y">не установлен</span>`}`,
     `<span class="g">&gt; система на связи_</span>`];
   let i = 0; const pre = $("#bootText");
