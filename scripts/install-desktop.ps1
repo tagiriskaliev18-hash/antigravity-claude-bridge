@@ -14,7 +14,7 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $repoRaw = "https://raw.githubusercontent.com/tagiriskaliev18-hash/antigravity-claude-bridge/$Branch"
 $appDir = Join-Path $env:LOCALAPPDATA "CouncilEngine"
-$files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index.html", "desktop/council.ico",
+$files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index.html", "desktop/ui/classic.html", "desktop/council.ico",
     # three.js for the 3D map and the two fonts are shipped with the app, so it works offline
     "desktop/ui/vendor/three.module.min.js", "desktop/ui/vendor/THREE-LICENSE",
     "desktop/ui/vendor/addons/controls/OrbitControls.js", "desktop/ui/vendor/addons/renderers/CSS2DRenderer.js",
