@@ -91,7 +91,7 @@ antigravity-claude-bridge/
 
 ## 🖥️ Council Engine: настольное приложение
 
-Живая трёхмерная карта мультимодели на твоём компьютере (three.js): в центре мост и кольцо его инструментов, на ближней орбите роли из `agents.json`, на дальнем поясе пулы моделей из `providers.json`, сгруппированные по семействам (DeepSeek, GLM, MiniMax, Kimi, Qwen, Claude, Gemini, GPT), над плоскостью Antigravity, Claude Code и чат. Каждый пул и клиент показан объёмным логотипом своего семейства (кит DeepSeek, звезда Claude, арка Antigravity и так далее); логотип крутится и светится, пока эта модель отвечает, а у пула без ключа нарисован только контур. Каждый вызов моста летит по карте от клиента к роли и пулу, который реально отвечает; ответ и отказ пула видны вспышкой.
+Живая трёхмерная карта мультимодели на твоём компьютере (three.js): в центре мост и кольцо его инструментов, на ближней орбите роли из `agents.json`, на дальнем поясе пулы моделей из `providers.json`, сгруппированные по семействам (DeepSeek, GLM, MiniMax, Kimi, Qwen, Claude, Gemini, Llama, Grok, GPT), над плоскостью Antigravity, Claude Code и чат. Каждый пул и клиент показан объёмным логотипом своего семейства (кит DeepSeek, звезда Claude, арка Antigravity и так далее); логотип крутится и светится, пока эта модель отвечает, а у пула без ключа нарисован только контур. Каждый вызов моста летит по карте от клиента к роли и пулу, который реально отвечает; ответ и отказ пула видны вспышкой.
 
 - **Чат**: задача роли, конкретной модели, консилиуму или Claude Code, с папкой проекта. Пока идёт ответ, под сообщением видно, какая модель отвечает сейчас, переходы на запасной пул и что делает каждый участник консилиума.
 - **Уведомления**: о каждом идущем вызове (из Antigravity, Claude Code или чата) и отдельно о созыве консилиума: участники, их модели, кто уже ответил, когда председатель пишет итог.
@@ -119,13 +119,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
 
 ## 🧠 Мультимодель ai-bridge 3
 
-Папка `multimodel/` — MCP-мост для Antigravity, который подключает Claude Code CLI и пулы моделей DeepSeek, GLM, MiniMax, Kimi, Qwen, GPT, Llama. Он заменяет `C:\projects\tools\claude_bridge.py`: инструменты `claude_review`, `claude_ask`, `claude_implement` остаются, добавляются роли, консилиум и учёт токенов.
+Папка `multimodel/` — MCP-мост для Antigravity, который подключает Claude Code CLI и пулы моделей DeepSeek, GLM, MiniMax, Kimi, Qwen, Grok, GPT, Llama. Он заменяет `C:\projects\tools\claude_bridge.py`: инструменты `claude_review`, `claude_ask`, `claude_implement` остаются, добавляются роли, консилиум и учёт токенов.
 
 | Инструмент | Что делает |
 |---|---|
 | `agent_run(agent, task)` | Задача роли из `agents.json`. Роль идёт по своей цепочке пулов: если основной не ответил (нет ключа, лимит, ошибка), отвечает запасной |
-| `consilium(task)` | DeepSeek, GLM, MiniMax и Kimi отвечают одновременно, Claude как председатель пишет итог. Протокол сохраняется в `consilium\` |
-| `model_ask(provider, question)` | Вопрос одному пулу; `provider` можно указать словом: `deepseek`, `glm`, `minimax`, `kimi`, `qwen`, `gemini`, `gpt`, `claude` |
+| `consilium(task)` | DeepSeek, GLM, MiniMax, Kimi и Grok отвечают одновременно, Claude как председатель пишет итог. Протокол сохраняется в `consilium\` |
+| `model_ask(provider, question)` | Вопрос одному пулу; `provider` можно указать словом: `deepseek`, `glm`, `minimax`, `kimi`, `qwen`, `grok`, `gemini`, `gpt`, `claude` |
 | `models_list(check)` | Пулы, ключи (есть или нет, без значений), роли, токены; `check=true` проверяет шлюзы без расхода токенов |
 | `token_balance()` | Расход токенов по пулам и счетам, стоимость, остатки |
 | `model_switch(model)` | Пул по умолчанию для `model_ask` |

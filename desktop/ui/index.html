@@ -383,11 +383,13 @@ const FAM = {
     about:"Gemini: семейство моделей Google; на нём работает и Antigravity. Отдельный пул gemini ходит в официальный Gemini API по своему ключу."},
   llama:{n:"Llama", c:"#c595db", rx:/llama/i, vendor:"Meta, открытые веса",
     about:"Открытая модель Llama. Часто запускается у Groq: очень быстрые ответы и бесплатный лимит."},
+  grok:{n:"Grok", c:"#e4e1da", rx:/grok|x-?ai/i, vendor:"xAI, США",
+    about:"Grok: модели xAI с доступом к свежим данным и сильными рассуждениями. Пул grok ходит через шлюз-перепродавца по своему ключу."},
   gpt:{n:"GPT", c:"#a8c3d0", rx:/gpt|openai|\bo[134]\b/i, vendor:"OpenAI или совместимые",
     about:"Модели семейства GPT или совместимые с API OpenAI."},
   other:{n:"Другие", c:"#89939e", rx:/$^/, vendor:"—", about:"Модель не удалось отнести к известному семейству по названию."},
 };
-const FAM_ORDER = ["deepseek","glm","minimax","kimi","qwen","claude","gemini","llama","gpt","other"];
+const FAM_ORDER = ["deepseek","glm","minimax","kimi","qwen","claude","gemini","llama","grok","gpt","other"];
 const ALWAYS = ["deepseek","glm","minimax","kimi"];
 const famOf = s => { s = String(s || ""); for (const k of FAM_ORDER) if (FAM[k].rx.test(s)) return k; return "other"; };
 const CLIENT = {antigravity:{n:"Antigravity"}, "claude-code":{n:"Claude Code"}, "council-engine":{n:"Чат Council Engine"}};

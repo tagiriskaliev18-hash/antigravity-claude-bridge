@@ -321,7 +321,7 @@ def host_of(url):
 
 
 def resolve_provider(name, cfg):
-    """A pool id from an id, a model name or a family word (deepseek, glm, minimax, kimi, qwen, gpt, claude)."""
+    """A pool id from an id, a model name or a family word (deepseek, glm, minimax, kimi, qwen, grok, gpt, claude)."""
     provs = cfg.get("providers") or {}
     n = (name or "").strip()
     if not n or n.lower() == "default":
@@ -1160,7 +1160,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "skills_list", "description": "Список навыков (skills) и ролей, которые их используют.",
      "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "model_ask", "description": "Спросить конкретный пул напрямую: DeepSeek, GLM, MiniMax, Kimi, Qwen, GPT, Claude. "
+    {"name": "model_ask", "description": "Спросить конкретный пул напрямую: DeepSeek, GLM, MiniMax, Kimi, Qwen, Grok, GPT, Claude. "
                                          "Можно указать id пула, модель или семейство (например 'glm').",
      "inputSchema": {"type": "object", "properties": {"provider": S("Пул, модель или семейство; пусто = пул по умолчанию"),
                                                       "question": S("Вопрос или задача"), "work_folder": S("Папка проекта"),
@@ -1170,7 +1170,7 @@ TOOLS = [
     {"name": "models_list", "description": "Пулы моделей: модель, шлюз, есть ли ключ, какие роли используют, токены и последний ответ. "
                                            "check=true дополнительно проверяет шлюзы (без расхода токенов).",
      "inputSchema": {"type": "object", "properties": {"check": {"type": "boolean", "description": "Проверить шлюзы сейчас"}}}},
-    {"name": "consilium", "description": "Консилиум моделей: участники (по умолчанию DeepSeek, GLM, MiniMax и Kimi) отвечают одновременно, "
+    {"name": "consilium", "description": "Консилиум моделей: участники (по умолчанию DeepSeek, GLM, MiniMax, Kimi и Grok) отвечают одновременно, "
                                          "председатель (Claude) сводит ответы в итог: согласие, расхождения, решение, план. "
                                          "Для архитектурных решений и новых модулей. Полный протокол сохраняется в файл.",
      "inputSchema": {"type": "object", "properties": {"task": S("Вопрос или задача для консилиума"), "work_folder": S("Папка проекта"),
@@ -1179,7 +1179,7 @@ TOOLS = [
                                                       "chair": S("Роль председателя вместо заданной")}, "required": ["task"]}},
     {"name": "token_balance", "description": "Отчёт по токенам из token_usage.json: расход по пулам и счетам, стоимость, остатки, ошибки.",
      "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "model_switch", "description": "Сменить пул по умолчанию для model_ask (deepseek, glm, minimax, kimi, qwen, gpt, claude или id пула).",
+    {"name": "model_switch", "description": "Сменить пул по умолчанию для model_ask (deepseek, glm, minimax, kimi, qwen, grok, gpt, claude или id пула).",
      "inputSchema": {"type": "object", "properties": {"model": S("Пул, модель или семейство")}, "required": ["model"]}},
     {"name": "soup_recipe", "description": "Поиск рецептов моделей LLM Soup для локального запуска или дообучения.",
      "inputSchema": {"type": "object", "properties": {"query": S("Запрос, например 'coder' или 'qwen'")}}},

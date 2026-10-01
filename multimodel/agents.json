@@ -1,7 +1,7 @@
 {
   "default_agent": "developer",
   "consilium": {
-    "members": ["architect", "glm_analyst", "minimax_architect", "kimi_researcher"],
+    "members": ["architect", "glm_analyst", "minimax_architect", "kimi_researcher", "grok_analyst"],
     "chair": "claude_chief",
     "note": "Участники отвечают одновременно, каждый своей моделью. Председатель читает все ответы и пишет общий итог."
   },
@@ -68,6 +68,15 @@
       "allowed_tools": "Read,Grep,Glob",
       "write_access": false,
       "description": "Разбирает большие объёмы кода и документации, ищет риски и альтернативы. Пока ключа Kimi нет, отвечают запасные пулы."
+    },
+    "grok_analyst": {
+      "name": "Аналитик Grok (Grok Analyst)",
+      "primary_provider": "grok",
+      "fallback_providers": ["deepseek_v4_pro", "xyvero"],
+      "skills": ["architecture-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Независимый взгляд модели xAI: ищет слабые места, риски и альтернативные решения. Без ключа Grok отвечают запасные пулы."
     },
     "qwen_coder": {
       "name": "Кодер Qwen (Qwen Coder)",

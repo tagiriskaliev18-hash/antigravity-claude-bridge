@@ -34,6 +34,11 @@
       "title": "Groq (бесплатный тариф)",
       "balance_units": null
     },
+    "tokenwave": {
+      "title": "TokenWave (tokenwave.ru, перепродавец): Grok",
+      "balance_units": null,
+      "note": "Ключ Grok от перепродавца. Остаток и расход смотреть на panel.tokenwave.ru. Название модели проверяется командой --check."
+    },
     "pollinations": {
       "title": "Pollinations (открытый шлюз без ключа)",
       "balance_units": null
@@ -167,6 +172,18 @@
       "tier": "free",
       "privacy": "private",
       "description": "Llama 3.3 70B у Groq: очень быстрые ответы, бесплатный лимит."
+    },
+    "grok": {
+      "type": "openai_compatible",
+      "account": "tokenwave",
+      "base_url": "https://tokenwave.ru/v1",
+      "base_url_env": "GROK_BASE_URL",
+      "model": "grok-4.7",
+      "model_env": "GROK_MODEL",
+      "api_key_env": "GROK_API_KEY",
+      "tier": "paid",
+      "privacy": "private",
+      "description": "Grok (xAI) через шлюз TokenWave. Модель задаётся в GROK_MODEL, если grok-4.7 не подойдёт."
     },
     "pollinations": {
       "type": "openai_compatible",
