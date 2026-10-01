@@ -11,6 +11,7 @@ call still goes through.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -100,6 +101,7 @@ def main(argv):
     rec.write("server_start", pid=child.pid, cmd=cmd, parent_pid=os.getppid())
 
     pending = {}
+    finished = {}  # rpc id -> call id for calls that already answered: their last log lines can arrive later
     plock = threading.Lock()
 
     def from_host():
@@ -141,6 +143,10 @@ def main(argv):
             if isinstance(msg, dict) and "id" in msg and "method" not in msg:
                 with plock:
                     hit = pending.pop(json.dumps(msg["id"]), None)
+                    if hit:
+                        finished[json.dumps(msg["id"])] = hit[0]
+                        while len(finished) > 200:
+                            finished.pop(next(iter(finished)))
                 if hit:
                     call_id, started = hit
                     result = msg.get("result") or {}
@@ -167,7 +173,18 @@ def main(argv):
                 err.flush()
             except Exception:
                 pass
-            rec.write("log", line=short(line.decode("utf-8", errors="replace").rstrip(), 300))
+            text = line.decode("utf-8", errors="replace").rstrip()
+            # ai-bridge 3 tags each line with the JSON-RPC id of its call: bind the line to that call exactly
+            m = re.search(r"\[rpc ([^\]]+)\] ", text)
+            call = None
+            if m:
+                with plock:
+                    call = (pending.get(m.group(1)) or (None,))[0] or finished.get(m.group(1))
+                text = text[:m.start()] + text[m.end():]
+            if call:
+                rec.write("log", line=short(text, 300), call=call)
+            else:
+                rec.write("log", line=short(text, 300))
 
     threads = [threading.Thread(target=f, daemon=True) for f in (from_host, from_server, from_stderr)]
     for t in threads:

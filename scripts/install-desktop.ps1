@@ -14,7 +14,18 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $repoRaw = "https://raw.githubusercontent.com/tagiriskaliev18-hash/antigravity-claude-bridge/$Branch"
 $appDir = Join-Path $env:LOCALAPPDATA "CouncilEngine"
-$files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index.html", "desktop/council.ico")
+$files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index.html", "desktop/council.ico",
+    # three.js for the 3D map and the two fonts are shipped with the app, so it works offline
+    "desktop/ui/vendor/three.module.min.js", "desktop/ui/vendor/THREE-LICENSE",
+    "desktop/ui/vendor/addons/controls/OrbitControls.js", "desktop/ui/vendor/addons/renderers/CSS2DRenderer.js",
+    "desktop/ui/vendor/addons/postprocessing/EffectComposer.js", "desktop/ui/vendor/addons/postprocessing/RenderPass.js",
+    "desktop/ui/vendor/addons/postprocessing/UnrealBloomPass.js", "desktop/ui/vendor/addons/postprocessing/OutputPass.js",
+    "desktop/ui/vendor/addons/postprocessing/ShaderPass.js", "desktop/ui/vendor/addons/postprocessing/MaskPass.js",
+    "desktop/ui/vendor/addons/postprocessing/Pass.js", "desktop/ui/vendor/addons/shaders/CopyShader.js",
+    "desktop/ui/vendor/addons/shaders/LuminosityHighPassShader.js", "desktop/ui/vendor/addons/shaders/OutputShader.js",
+    "desktop/ui/fonts/geologica-cyrillic-full-normal.woff2", "desktop/ui/fonts/geologica-latin-full-normal.woff2",
+    "desktop/ui/fonts/martian-mono-cyrillic-standard-normal.woff2", "desktop/ui/fonts/martian-mono-latin-standard-normal.woff2",
+    "desktop/ui/fonts/OFL-Geologica.txt", "desktop/ui/fonts/OFL-MartianMono.txt")
 
 Write-Host "=== Council Engine installer ===" -ForegroundColor Cyan
 
@@ -47,6 +58,7 @@ if ($PSScriptRoot) {
 }
 foreach ($f in $files) {
     $dst = Join-Path $appDir ($f.Substring("desktop/".Length) -replace "/", "\")
+    New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
     if ($localRoot) {
         Copy-Item (Join-Path $localRoot ($f -replace "/", "\")) $dst -Force
     } else {

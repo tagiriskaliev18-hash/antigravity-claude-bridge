@@ -91,7 +91,14 @@ antigravity-claude-bridge/
 
 ## 🖥️ Council Engine: настольное приложение
 
-Живая sci-fi карта мультимодели на твоём компьютере: ядро-мост, кольцо ролей из `agents.json` и кольцо пулов моделей из `providers.json` (DeepSeek, GLM, MiniMax, Qwen и другие, цвет по семейству), расход токенов и балансы из `token_usage.json`, процессы Antigravity, Claude Code и мостов и каждый вызов моста (кто вызвал, какая роль и какой пул отвечали, переходы на запасной пул, токены, результат). Приложение только читает, работает по адресу `127.0.0.1` и не показывает значения ключей.
+Живая трёхмерная карта мультимодели на твоём компьютере (three.js): в центре мост и кольцо его инструментов, на ближней орбите роли из `agents.json`, на дальнем поясе пулы моделей из `providers.json`, сгруппированные по семействам (DeepSeek, GLM, MiniMax, Kimi, Qwen, Claude, Gemini, GPT), над плоскостью Antigravity, Claude Code и чат. Каждый вызов моста летит по карте от клиента к роли и пулу, который реально отвечает; ответ и отказ пула видны вспышкой.
+
+- **Чат**: задача роли, конкретной модели, консилиуму или Claude Code, с папкой проекта. Пока идёт ответ, под сообщением видно, какая модель отвечает сейчас, переходы на запасной пул и что делает каждый участник консилиума.
+- **Уведомления**: о каждом идущем вызове (из Antigravity, Claude Code или чата) и отдельно о созыве консилиума: участники, их модели, кто уже ответил, когда председатель пишет итог.
+- **Antigravity**: проекты из `.gemini\config\projects` и шаги последнего разговора из его локальных файлов (только чтение). Отправить сообщение прямо в окно Antigravity нельзя, у него нет для этого входа; кнопка «Скопировать для Antigravity» готовит текст.
+- **Токены, журнал, процессы, настройки**: расход и балансы из `token_usage.json`, каждый вызов (кто вызвал, роль, пул, токены, результат), процессы Antigravity, Claude Code и мостов.
+
+Приложение работает только по адресу `127.0.0.1`, не показывает значения ключей и ничего не отправляет само: запрос уходит только по кнопке «Отправить» в чате. three.js и шрифты (Geologica, Martian Mono, лицензия OFL) лежат в `desktop/ui/vendor` и `desktop/ui/fonts`, интернет для интерфейса не нужен.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
@@ -103,7 +110,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
 |---|---|
 | `desktop/council_app.py` | Локальный сервер и окно приложения, сбор процессов, настроек и журнала |
 | `desktop/council_tap.py` | Прослойка между клиентом и мостом: пропускает трафик без изменений и пишет журнал в `~/.council/activity` |
-| `desktop/ui/index.html` | Интерфейс |
+| `desktop/ui/index.html` | Интерфейс: 3D-карта, чат, разделы |
+| `desktop/ui/vendor/`, `desktop/ui/fonts/` | three.js r170 и шрифты, поставляются вместе с приложением |
 
 Команды: `python council_app.py --status` (сводка в консоли), `--wire` / `--unwire` (подключить или убрать журнал). Удаление: `%LOCALAPPDATA%\CouncilEngine\uninstall.ps1`.
 
@@ -117,16 +125,19 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
 |---|---|
 | `agent_run(agent, task)` | Задача роли из `agents.json`. Роль идёт по своей цепочке пулов: если основной не ответил (нет ключа, лимит, ошибка), отвечает запасной |
 | `consilium(task)` | DeepSeek, GLM, MiniMax и Kimi отвечают одновременно, Claude как председатель пишет итог. Протокол сохраняется в `consilium\` |
-| `model_ask(provider, question)` | Вопрос одному пулу; `provider` можно указать словом: `deepseek`, `glm`, `minimax`, `kimi`, `qwen`, `gpt`, `claude` |
+| `model_ask(provider, question)` | Вопрос одному пулу; `provider` можно указать словом: `deepseek`, `glm`, `minimax`, `kimi`, `qwen`, `gemini`, `gpt`, `claude` |
 | `models_list(check)` | Пулы, ключи (есть или нет, без значений), роли, токены; `check=true` проверяет шлюзы без расхода токенов |
 | `token_balance()` | Расход токенов по пулам и счетам, стоимость, остатки |
 | `model_switch(model)` | Пул по умолчанию для `model_ask` |
 | `agents_list`, `skills_list`, `soup_recipe` | Справочники |
 
+У `agent_run`, `model_ask` и `consilium` есть `work_folder` и `files`: мост сам читает карту папки, README и названные файлы и прикладывает их к запросу (до 40 000 символов, `AI_BRIDGE_CONTEXT_CHARS`). Файлы `.env`, ключи, токены и базы данных не отправляются никогда.
+
 Ключей в репозитории нет: в `providers.json` у каждого пула указано имя переменной (`api_key_env`), а значение лежит в `C:\projects\tools\.env` только на этом компьютере.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\install-multimodel.ps1
+python C:\projects\tools\claude_bridge.py --import-keys   # перенести ключи из старых мостов в этой папке
 python C:\projects\tools\claude_bridge.py --keys    # ввести ключи, ввод скрыт
 python C:\projects\tools\claude_bridge.py --check   # по одному короткому запросу в каждый пул
 ```

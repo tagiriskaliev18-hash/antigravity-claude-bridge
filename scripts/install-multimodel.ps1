@@ -2,7 +2,7 @@
 # Copies multimodel\ from this clone into C:\projects\tools, where Antigravity's claude-bridge already points.
 #   powershell -ExecutionPolicy Bypass -File .\scripts\install-multimodel.ps1
 # Options: -ToolsDir <path>  -NoRule (do not add the Antigravity rule file)
-# Keys are not part of this repo: after installing run  python C:\projects\tools\claude_bridge.py --keys
+# Keys are not part of this repo: after installing run  python C:\projects\tools\claude_bridge.py --import-keys  (or --keys)
 param(
     [string]$ToolsDir = "C:\projects\tools",
     [switch]$NoRule
@@ -82,7 +82,9 @@ Write-Host ""
 $ErrorActionPreference = "Stop"
 
 Write-Host "[5/5] Done." -ForegroundColor Yellow
-Write-Host "Next: enter the API keys (input is hidden), then check every pool with one short request:" -ForegroundColor Cyan
+Write-Host "Next: move the keys your older bridges in this folder already use (names and lengths are printed, never values)," -ForegroundColor Cyan
+Write-Host "enter any missing ones (input is hidden), then check every pool with one short request:" -ForegroundColor Cyan
+Write-Host "  & `"$python`" `"$bridge`" --import-keys" -ForegroundColor White
 Write-Host "  & `"$python`" `"$bridge`" --keys" -ForegroundColor White
 Write-Host "  & `"$python`" `"$bridge`" --check" -ForegroundColor White
 Write-Host "Then restart Antigravity so it starts the new bridge." -ForegroundColor Cyan

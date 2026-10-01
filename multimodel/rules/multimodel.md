@@ -8,7 +8,8 @@ trigger: always_on
 
 - `agent_run(agent, task)`: отдать задачу роли. Роли и их модели: `agents_list`. Основные: `architect` (DeepSeek V4 Pro), `glm_analyst` и `security_auditor` (GLM), `minimax_architect` (MiniMax), `kimi_researcher` (Kimi), `qwen_coder` и `fast_developer` (быстрые модели), `gpt_strategist` (GPT), `claude_chief` (Claude Code).
 - `consilium(task)`: DeepSeek, GLM, MiniMax и Kimi отвечают одновременно, Claude пишет итог. Только для архитектурных решений и новых модулей (`status: init`), не для мелочей.
-- `model_ask(provider, question)`: вопрос одной модели напрямую; `provider` можно указать словом: deepseek, glm, minimax, kimi, qwen, gpt, claude.
+- `model_ask(provider, question)`: вопрос одной модели напрямую; `provider` можно указать словом: deepseek, glm, minimax, kimi, qwen, gpt, claude, gemini.
+- Передавай `work_folder` (папку проекта), когда задача про код: модели получат карту проекта, README и файлы, которые названы в задаче или перечислены в `files`. Файлы `.env`, ключи и базы данных мост не отправляет.
 - `models_list`, `token_balance`: какие пулы подключены и сколько токенов потрачено.
 - Если ответ начинается с `PROVIDER_NO_KEY`, `PROVIDER_LIMIT_REACHED` или `AGENT_ERROR`, не повторяй тот же вызов: продолжай сам или возьми другую роль.
 - Экономия: рутину делай сам, быстрые роли (`fast_developer`, `qwen_coder`) для черновиков, тяжёлые (`architect`, `consilium`, `claude_*`) только по правилам Tier 2 из GEMINI.md.

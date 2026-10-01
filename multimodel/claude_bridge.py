@@ -8,6 +8,7 @@ filled from the usage that every answer reports.
 
   python claude_bridge.py              MCP server on stdin/stdout (Antigravity starts it)
   python claude_bridge.py --keys       type API keys into .env next to providers.json (input hidden)
+  python claude_bridge.py --import-keys   copy keys that older bridges on this PC keep in their code into .env
   python claude_bridge.py --check      one short real request to every pool that has a key
   python claude_bridge.py --status     pools, keys (names only), roles and token totals
   python claude_bridge.py --selftest   offline check of providers.json, agents.json and skills
@@ -15,6 +16,7 @@ filled from the usage that every answer reports.
 Keys never go into providers.json: each pool names the variable that holds its key (api_key_env),
 and the value comes from the environment or from .env. Nothing here prints a key.
 """
+import contextvars
 import json
 import os
 import re
@@ -63,9 +65,15 @@ OUT_LOCK = threading.Lock()
 LEDGER_LOCK = threading.Lock()
 
 
+# the JSON-RPC id of the tool call a log line belongs to, so the call log can tell parallel calls apart
+RPC_ID = contextvars.ContextVar("rpc_id", default=None)
+
+
 def log(msg):
+    rid = RPC_ID.get()
+    tag = f"[rpc {json.dumps(rid)}] " if rid is not None else ""
     with LOG_LOCK:
-        sys.stderr.write(f"[ai-bridge] {msg}\n")
+        sys.stderr.write(f"[ai-bridge] {tag}{msg}\n")
         sys.stderr.flush()
 
 
@@ -473,6 +481,83 @@ def validate_work_folder(work_folder):
     return os.path.abspath(work_folder)
 
 
+# Models behind an HTTP gateway cannot open files, so a request with a project folder carries a map of the
+# project, its README and the files the task names. Secrets never leave the computer this way.
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "env", "__pycache__", "dist", "build", ".next", ".idea", ".vscode",
+             "target", ".gradle", "coverage", ".cache", ".pytest_cache", ".mypy_cache", "consilium", ".turbo", "out"}
+SECRET_FILE = re.compile(r"(^\.env|\.pem$|\.key$|\.p12$|\.pfx$|^id_rsa|^id_ed25519|credential|secret|oauth|token_usage|"
+                         r"\.sqlite$|\.db$|\.kdbx$)", re.I)
+TEXT_EXT = re.compile(r"\.(py|js|mjs|cjs|ts|tsx|jsx|json|md|txt|toml|yaml|yml|ini|cfg|html|css|scss|sql|sh|ps1|bat|cmd|"
+                      r"go|rs|java|kt|cs|cpp|c|h|hpp|rb|php|swift|vue|svelte|xml|gradle|dockerfile|env\.example)$", re.I)
+CONTEXT_BUDGET = int(os.environ.get("AI_BRIDGE_CONTEXT_CHARS", "40000"))
+
+
+def read_text_file(path, limit):
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read(limit + 1)
+    except OSError:
+        return None
+    if b"\0" in raw[:2048]:
+        return None
+    text = raw[:limit].decode("utf-8", errors="replace")
+    return text + ("\n…(файл обрезан)" if len(raw) > limit else "")
+
+
+def project_context(folder, task="", files=None):
+    """Tree of the project, README and the files that the task names or that were passed in `files`."""
+    root = validate_work_folder(folder)
+    if not root:
+        return "", []
+    real_root = os.path.realpath(root)
+    tree, by_name, by_rel = [], {}, {}
+    for cur, dirs, names in os.walk(root):
+        rel_dir = os.path.relpath(cur, root)
+        depth = 0 if rel_dir == "." else rel_dir.count(os.sep) + 1
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")) if depth < 3 else []
+        for n in sorted(names):
+            rel = n if rel_dir == "." else os.path.join(rel_dir, n)
+            by_rel[rel.replace("\\", "/").lower()] = rel
+            by_name.setdefault(n.lower(), []).append(rel)
+            if len(tree) < 250:
+                try:
+                    size = os.path.getsize(os.path.join(cur, n))
+                except OSError:
+                    size = 0
+                tree.append(f"{rel.replace(os.sep, '/')}  ({size} Б)")
+    wanted = []
+    for f in as_list(files):
+        wanted.append(by_rel.get(f.replace("\\", "/").lower().lstrip("./")) or f)
+    for word in set(re.findall(r"[\w./\\-]+\.[A-Za-z0-9]{1,8}", task or "")):
+        w = word.replace("\\", "/").lower().strip("./")
+        hit = by_rel.get(w) or (by_name.get(w)[0] if len(by_name.get(w) or []) == 1 else None)
+        if hit:
+            wanted.append(hit)
+    readme = next((by_rel[r] for r in ("readme.md", "readme.txt", "readme") if r in by_rel), None)
+    if readme:
+        wanted.insert(0, readme)
+    parts, used, budget = [], [], CONTEXT_BUDGET
+    parts.append(f"Карта проекта {root} (первые {len(tree)} файлов, без служебных папок):\n" + "\n".join(tree))
+    budget -= len(parts[0])
+    for rel in dict.fromkeys(wanted):
+        path = os.path.realpath(os.path.join(root, rel))
+        name = os.path.basename(path)
+        if not path.startswith(real_root.rstrip(os.sep) + os.sep) or not os.path.isfile(path) or SECRET_FILE.search(name):
+            continue
+        if not TEXT_EXT.search(name) and name.lower() not in ("readme", "dockerfile", "makefile"):
+            continue
+        if budget < 500:
+            break
+        text = read_text_file(path, min(6000 if rel == readme else 20000, budget - 200))
+        if text is None:
+            continue
+        parts.append(f"--- ФАЙЛ {rel.replace(os.sep, '/')} ---\n{text}")
+        used.append(rel.replace(os.sep, "/"))
+        budget -= len(parts[-1])
+    log(f"Project context: {root}: {len(used)} files, {CONTEXT_BUDGET - budget} chars")
+    return "\n\n".join(parts), used
+
+
 def run_claude(work_folder, prompt, tools_arg=None, allow_writes=False, model=None, timeout=None):
     cfg = load_providers()[0]
     pid, p = cli_provider(cfg)
@@ -656,7 +741,8 @@ def read_ledger():
 
 # ---------------------------------------------------------------- roles and chains
 
-def run_chain(chain, system_prompt, task, agent=None, tool=None, work_folder=None, allowed_tools="Read,Grep,Glob"):
+def run_chain(chain, system_prompt, task, agent=None, tool=None, work_folder=None, allowed_tools="Read,Grep,Glob",
+              context=""):
     cfg = load_providers()[0]
     provs = cfg.get("providers") or {}
     tried = []
@@ -673,11 +759,13 @@ def run_chain(chain, system_prompt, task, agent=None, tool=None, work_folder=Non
             if r.kind == "CLI_MISSING":
                 log("Claude CLI не обнаружен локально. Перехожу к следующему пулу цепочки.")
         elif p.get("type") == "openai_compatible":
-            r = call_openai(pid, p, [{"role": "system", "content": system_prompt}, {"role": "user", "content": task}])
+            sp = system_prompt + (f"\n\nМатериалы проекта (прочитаны мостом с диска):\n{context}" if context else "")
+            r = call_openai(pid, p, [{"role": "system", "content": sp}, {"role": "user", "content": task}])
         else:
             r = Reply(pid, False, f"PROVIDER_ERROR: неизвестный тип пула '{p.get('type')}'", "PROVIDER_ERROR")
         record(r, agent, tool)
         if r.ok:
+            log(f"Agent '{agent or tool}' answered via provider '{pid}' ({r.model}) in {(r.ms or 0) / 1000:.1f}s")
             return r, tried
         tried.append((pid, r.short_why()))
         rest = ": запасных пулов больше нет" if i == len(chain) - 1 else "..."
@@ -685,7 +773,7 @@ def run_chain(chain, system_prompt, task, agent=None, tool=None, work_folder=Non
     return None, tried
 
 
-def agent_exec(agent_name, task, skill=None, work_folder=None, tool="agent_run"):
+def agent_exec(agent_name, task, skill=None, work_folder=None, tool="agent_run", context=None, files=None):
     data = load_agents()[0]
     agents = data.get("agents") or {}
     agent_name = agent_name or data.get("default_agent") or "developer"
@@ -706,8 +794,12 @@ def agent_exec(agent_name, task, skill=None, work_folder=None, tool="agent_run")
                      f"Рабочая папка проекта: {folder}\n{text}\n\n"
                      "Выполняй задачу по правилам своих навыков. Отвечай по-русски, если задача на русском.")
     chain = [a.get("primary_provider")] + list(a.get("fallback_providers") or [])
+    if context is None:
+        context = project_context(work_folder, task, files)[0] if work_folder else ""
     r, tried = run_chain(chain, system_prompt, task, agent=agent_name, tool=tool, work_folder=folder,
-                         allowed_tools=a.get("allowed_tools", "Read,Grep,Glob"))
+                         allowed_tools=a.get("allowed_tools", "Read,Grep,Glob"), context=context)
+    if not r:
+        log(f"Agent '{agent_name}' failed: " + "; ".join(f"{p} ({w})" for p, w in tried))
     return {"agent": agent_name, "role": role, "primary": chain[0], "skills": skills, "reply": r, "tried": tried,
             "error": None if r else "AGENT_ERROR: все пулы роли '{}' не ответили: {}".format(
                 agent_name, "; ".join(f"{p} ({w})" for p, w in tried) or "цепочка пуста")}
@@ -723,8 +815,8 @@ def agent_header(res):
     return head
 
 
-def handle_agent_run(agent, task, skill=None, work_folder=None):
-    res = agent_exec(agent, task, skill, work_folder)
+def handle_agent_run(agent, task, skill=None, work_folder=None, files=None):
+    res = agent_exec(agent, task, skill, work_folder, files=files)
     if res.get("error"):
         return res["error"]
     return agent_header(res) + "\n\n" + res["reply"].text
@@ -736,7 +828,7 @@ def as_list(v):
     return [str(x) for x in (v or []) if x]
 
 
-def handle_consilium(task, work_folder=None, members=None, chair=None):
+def handle_consilium(task, work_folder=None, members=None, chair=None, files=None):
     data = load_agents()[0]
     agents = data.get("agents") or {}
     conf = data.get("consilium") or {}
@@ -746,11 +838,15 @@ def handle_consilium(task, work_folder=None, members=None, chair=None):
     if not members or missing:
         return f"CONSILIUM_ERROR: нет ролей: {', '.join(missing) or 'участники не заданы'}. Есть: {', '.join(agents)}"
     log(f"Запуск Мультимодельного Консилиума по задаче: {task[:60]}...")
+    log(f"Consilium members: {', '.join(members)}; chair: {chair}")
     t0 = time.time()
+    context = project_context(work_folder, task, files)[0] if work_folder else ""
     member_task = (f"{task}\n\nТы участник консилиума из нескольких моделей. Дай своё независимое решение: "
                    "ключевые выводы, риски, конкретную рекомендацию. Коротко и по делу.")
+    parent = contextvars.copy_context()
     with ThreadPoolExecutor(max_workers=len(members)) as ex:
-        results = list(ex.map(lambda m: agent_exec(m, member_task, None, work_folder, tool="consilium"), members))
+        results = list(ex.map(lambda m: parent.copy().run(agent_exec, m, member_task, None, work_folder,
+                                                          tool="consilium", context=context), members))
     answered = [x for x in results if not x.get("error")]
     if not answered:
         return "CONSILIUM_ERROR: ни один участник не ответил. " + " | ".join(x["error"] for x in results)
@@ -759,7 +855,8 @@ def handle_consilium(task, work_folder=None, members=None, chair=None):
                     "Ты председатель. Сформируй итог: 1) в чём участники согласны; 2) где расходятся и чья позиция "
                     "сильнее и почему; 3) итоговое решение; 4) план шагов. Опирайся на ответы участников и проверяемые факты, "
                     "не выдумывай того, чего в них нет.")
-    verdict = agent_exec(chair, verdict_task, None, work_folder, tool="consilium")
+    log(f"Consilium chair '{chair}' is writing the verdict ({len(answered)} of {len(members)} answered)")
+    verdict = agent_exec(chair, verdict_task, None, work_folder, tool="consilium", context="")
     secs = int(time.time() - t0)
     rows = ["| Роль | Ответил пул | Модель | Токены | Сначала пробовал |", "|---|---|---|---|---|"]
     for x in results:
@@ -816,9 +913,16 @@ def git_summary(folder):
 
 
 def claude_tool(tool, work_folder, prompt, tools_arg=None, allow_writes=False):
+    pid = cli_provider(load_providers()[0])[0]
+    log(f"Agent '{tool}' calling provider '{pid}' (cli)...")
     r = run_claude(work_folder, prompt, tools_arg=tools_arg, allow_writes=allow_writes,
                    timeout=max(CLAUDE_TIMEOUT, 600) if allow_writes else None)
+    if r.ok:
+        log(f"Agent '{tool}' answered via provider '{pid}' ({r.model}) in {(r.ms or 0) / 1000:.1f}s")
+    elif r.kind != "CLI_MISSING":
+        log(f"Agent '{tool}' failed: {pid} ({r.short_why()})")
     if r.kind == "CLI_MISSING":
+        log(f"Provider '{pid}' Claude CLI не найден, switching to fallback (agent '{tool}')...")
         if allow_writes:
             return "CLAUDE_ERROR: claude_implement меняет файлы и работает только через Claude Code CLI, а он на этом компьютере не найден."
         chain = load_providers()[0].get("claude_fallback") or []
@@ -856,7 +960,7 @@ def handle_implement(work_folder, instruction):
 
 # ---------------------------------------------------------------- direct pools
 
-def handle_model_ask(provider, question, work_folder=None, model=None):
+def handle_model_ask(provider, question, work_folder=None, model=None, files=None):
     cfg = load_providers()[0]
     pid = resolve_provider(provider, cfg)
     if not pid:
@@ -869,9 +973,15 @@ def handle_model_ask(provider, question, work_folder=None, model=None):
     if p.get("type") == "cli":
         r = run_claude(folder, question, tools_arg="Read,Grep,Glob", model=prov_model(p))
     else:
-        r = call_openai(pid, p, [{"role": "system", "content": f"Ты опытный инженер. Рабочая папка проекта: {folder}."},
-                                 {"role": "user", "content": question}])
+        ctx = project_context(work_folder, question, files)[0] if work_folder else ""
+        sp = f"Ты опытный инженер. Рабочая папка проекта: {folder}." + (
+            f"\n\nМатериалы проекта (прочитаны мостом с диска):\n{ctx}" if ctx else "")
+        r = call_openai(pid, p, [{"role": "system", "content": sp}, {"role": "user", "content": question}])
     record(r, tool="model_ask")
+    if r.ok:
+        log(f"Agent 'model_ask' answered via provider '{pid}' ({r.model}) in {(r.ms or 0) / 1000:.1f}s")
+    else:
+        log(f"Agent 'model_ask' failed: {pid} ({r.short_why()})")
     return f"### [Пул: {pid} | Модель: {r.model}]\n\n{r.text}" if r.ok else r.text
 
 
@@ -1043,7 +1153,9 @@ TOOLS = [
                                          "если основной пул не ответил, отвечает запасной.",
      "inputSchema": {"type": "object", "properties": {"agent": S("Роль, список: agents_list"), "task": S("Задача или код"),
                                                       "skill": S("Навык вместо навыков роли (необязательно)"),
-                                                      "work_folder": S("Папка проекта")}, "required": ["agent", "task"]}},
+                                                      "work_folder": S("Папка проекта: модели получат карту проекта, README и файлы, названные в задаче"),
+                                                      "files": S("Файлы проекта через запятую, которые нужно приложить (необязательно)")},
+                     "required": ["agent", "task"]}},
     {"name": "agents_list", "description": "Список ролей: модели в цепочке, навыки, назначение, состав консилиума.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "skills_list", "description": "Список навыков (skills) и ролей, которые их используют.",
@@ -1052,6 +1164,7 @@ TOOLS = [
                                          "Можно указать id пула, модель или семейство (например 'glm').",
      "inputSchema": {"type": "object", "properties": {"provider": S("Пул, модель или семейство; пусто = пул по умолчанию"),
                                                       "question": S("Вопрос или задача"), "work_folder": S("Папка проекта"),
+                                                      "files": S("Файлы проекта через запятую (необязательно)"),
                                                       "model": S("Другая модель того же шлюза (необязательно)")},
                      "required": ["question"]}},
     {"name": "models_list", "description": "Пулы моделей: модель, шлюз, есть ли ключ, какие роли используют, токены и последний ответ. "
@@ -1061,6 +1174,7 @@ TOOLS = [
                                          "председатель (Claude) сводит ответы в итог: согласие, расхождения, решение, план. "
                                          "Для архитектурных решений и новых модулей. Полный протокол сохраняется в файл.",
      "inputSchema": {"type": "object", "properties": {"task": S("Вопрос или задача для консилиума"), "work_folder": S("Папка проекта"),
+                                                      "files": S("Файлы проекта через запятую (необязательно)"),
                                                       "members": S("Роли через запятую вместо состава по умолчанию"),
                                                       "chair": S("Роль председателя вместо заданной")}, "required": ["task"]}},
     {"name": "token_balance", "description": "Отчёт по токенам из token_usage.json: расход по пулам и счетам, стоимость, остатки, ошибки.",
@@ -1074,6 +1188,7 @@ TOOLS = [
 
 def call_tool(name, args):
     wf = args.get("work_folder") or os.getcwd()
+    given = args.get("work_folder") or None  # project materials go to gateway models only when a folder was named
     if name == "claude_review":
         return handle_review(wf, args.get("focus", ""))
     if name == "claude_ask":
@@ -1081,17 +1196,17 @@ def call_tool(name, args):
     if name == "claude_implement":
         return handle_implement(wf, args.get("instruction", ""))
     if name == "agent_run":
-        return handle_agent_run(args.get("agent", ""), args.get("task", ""), args.get("skill"), wf)
+        return handle_agent_run(args.get("agent", ""), args.get("task", ""), args.get("skill"), given, args.get("files"))
     if name == "agents_list":
         return handle_agents_list()
     if name == "skills_list":
         return handle_skills_list()
     if name == "model_ask":
-        return handle_model_ask(args.get("provider", ""), args.get("question", ""), wf, args.get("model"))
+        return handle_model_ask(args.get("provider", ""), args.get("question", ""), given, args.get("model"), args.get("files"))
     if name == "models_list":
         return handle_models_list(bool(args.get("check")))
     if name == "consilium":
-        return handle_consilium(args.get("task", ""), wf, args.get("members"), args.get("chair"))
+        return handle_consilium(args.get("task", ""), given, args.get("members"), args.get("chair"), args.get("files"))
     if name == "token_balance":
         return handle_token_balance()
     if name == "model_switch":
@@ -1108,6 +1223,7 @@ def send(obj):
 
 
 def serve_tool_call(req_id, params):
+    RPC_ID.set(req_id)
     name = params.get("name")
     args = params.get("arguments") or {}
     log(f"Tool call: {name}")
@@ -1245,6 +1361,13 @@ def cli_keys(only):
     if not new:
         print("\nНичего не изменилось.")
         return 0
+    write_env(path, new)
+    print(f"\nЗаписано: {', '.join(new)}. Проверка: python \"{os.path.abspath(__file__)}\" --check")
+    return 0
+
+
+def write_env(path, new):
+    """Set NAME=value lines in .env, keeping comments and other lines as they are."""
     lines, done = [], set()
     if os.path.isfile(path):
         with open(path, "r", encoding="utf-8-sig", errors="replace") as fh:
@@ -1260,7 +1383,79 @@ def cli_keys(only):
     with open(tmp, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
     os.replace(tmp, path)
-    print(f"\nЗаписано: {', '.join(new)}. Проверка: python \"{os.path.abspath(__file__)}\" --check")
+
+
+LEGACY_KEY = re.compile(r"""environ\.get\(\s*["'](\w*(?:API_KEY|KEY|TOKEN))["']\s*,\s*["']([^"'\s]{16,})["']\s*\)""")
+
+
+def legacy_sources():
+    names = ["multillm_bridge.py", "multillm-bridge.py", "aiduo_bridge.py"]
+    out = []
+    for d in config_dirs():
+        for n in names:
+            out.append(os.path.join(d, n))
+        try:
+            out += [os.path.join(d, n) for n in sorted(os.listdir(d)) if n.startswith("claude_bridge.py.bak-")]
+        except OSError:
+            pass
+    seen, files = set(), []
+    for f in out:
+        k = os.path.normcase(os.path.abspath(f))
+        if k not in seen and os.path.isfile(f):
+            seen.add(k)
+            files.append(f)
+    return files
+
+
+def cli_import_keys(extra, force=False):
+    """Older bridges on this PC keep keys as defaults in their code. Move them into .env for the pools
+    that use the same gateway (matched by host), so ai-bridge 3 can use them. Prints names, never values."""
+    cfg = load_providers()[0]
+    by_host = {}
+    for pid, p in (cfg.get("providers") or {}).items():
+        if p.get("api_key_env") and p.get("base_url"):
+            by_host.setdefault(host_of(p["base_url"]), set()).add(p["api_key_env"])
+    sources = [f for f in extra if os.path.isfile(f)] + legacy_sources()
+    if not sources:
+        print("Старых мостов с ключами рядом не нашлось (multillm_bridge.py, claude_bridge.py.bak-*).")
+        return 1
+    found = {}
+    for src in sources:
+        try:
+            with open(src, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        for m in LEGACY_KEY.finditer(text):
+            name, value = m.group(1), m.group(2)
+            if value.lower().startswith(("http", "your", "sk-xxx", "<")):
+                continue
+            before = text[max(0, m.start() - 700):m.start()]
+            urls = re.findall(r"https?://[^\s\"']+", before)
+            host = host_of(urls[-1]) if urls else ""
+            targets = by_host.get(host) or ({name} if any(p.get("api_key_env") == name for p in (cfg.get("providers") or {}).values()) else set())
+            for t in targets:
+                found.setdefault(t, (value, src, name, host))
+    if not found:
+        print("В старых мостах не нашлось ключей для шлюзов из providers.json.")
+        return 1
+    path = os.path.join(home_dir(), ".env")
+    new = {}
+    for env, (value, src, name, host) in sorted(found.items()):
+        have = key_source(env)
+        status = f"уже задан ({have}), оставлен" if have and not force else "перенесён"
+        if status == "перенесён":
+            new[env] = value
+        print(f"  {env:<18} {status}: из {os.path.basename(src)} ({name}, {host or 'тот же шлюз'}), длина {len(value)}")
+    if new:
+        write_env(path, new)
+        print(f"\nЗаписано в {path}: {', '.join(new)}. Проверка: python \"{os.path.abspath(__file__)}\" --check")
+    else:
+        print("\nНичего не изменилось. Перезаписать: --import-keys --force")
+    missing = sorted({p.get("api_key_env") for p in (cfg.get("providers") or {}).values()
+                      if p.get("api_key_env") and not key_source(p["api_key_env"]) and p["api_key_env"] not in new})
+    if missing:
+        print("Без ключа остаются: " + ", ".join(missing) + ". Их можно ввести командой --keys.")
     return 0
 
 
@@ -1309,6 +1504,8 @@ if __name__ == "__main__":
         cli_status()
     elif "--selftest" in argv:
         sys.exit(cli_selftest())
+    elif "--import-keys" in argv:
+        sys.exit(cli_import_keys([a for a in argv if not a.startswith("--")], force="--force" in argv))
     elif "--keys" in argv:
         sys.exit(cli_keys([a for a in argv if not a.startswith("--")]))
     elif "--check" in argv:

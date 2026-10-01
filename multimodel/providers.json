@@ -25,6 +25,11 @@
       "balance_units": null,
       "note": "Ключ Kimi. Название модели проверяется командой --check после ввода ключа."
     },
+    "google_ai": {
+      "title": "Google AI Studio (Gemini API)",
+      "balance_units": null,
+      "note": "Отдельный ключ Gemini API из aistudio.google.com. Это не вход в Antigravity: ключ создаётся и вводится вручную."
+    },
     "groq": {
       "title": "Groq (бесплатный тариф)",
       "balance_units": null
@@ -108,6 +113,18 @@
       "tier": "paid",
       "privacy": "private",
       "description": "Kimi (Moonshot AI): длинный контекст и агентные задачи. Модель задаётся в KIMI_MODEL, если kimi-latest не подойдёт."
+    },
+    "gemini": {
+      "type": "openai_compatible",
+      "account": "google_ai",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "base_url_env": "GEMINI_BASE_URL",
+      "model": "gemini-flash-latest",
+      "model_env": "GEMINI_MODEL",
+      "api_key_env": "GEMINI_API_KEY",
+      "tier": "free",
+      "privacy": "private",
+      "description": "Gemini через официальный Gemini API (тот же род моделей, что в Antigravity). Ключ: aistudio.google.com, переменная GEMINI_API_KEY; модель меняется в GEMINI_MODEL."
     },
     "octava_gpt6": {
       "type": "openai_compatible",

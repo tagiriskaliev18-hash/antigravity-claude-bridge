@@ -1,14 +1,17 @@
-"""Council Engine: local desktop dashboard for the Antigravity <-> Claude Code bridge.
+"""Council Engine: local desktop dashboard and chat for the Antigravity <-> multi-model bridge.
 
 Shows only what it can actually observe on this computer:
   * running processes of Antigravity, Claude Code, the MCP bridges and their children;
   * MCP servers registered in Antigravity and Claude Code configs;
   * tools each bridge exposes (asked from the bridge itself) and its model pools;
   * every MCP tool call recorded by council_tap.py (time, tool, model, duration, result);
-  * the rule files (GEMINI.md, CLAUDE.md, rules, skills) that steer the agents.
+  * the rule files (GEMINI.md, CLAUDE.md, rules, skills) that steer the agents;
+  * Antigravity's own steps, read from its local transcripts (~/.gemini/antigravity/brain).
 
-The app is read-only: it never changes configs from the window. Wiring the call log
-is a separate, explicit step:  python council_app.py --wire  (undo: --unwire).
+The chat tab sends a request only when the user presses "Отправить": it starts the same
+MCP bridge Antigravity uses (through the call log) and calls agent_run, model_ask, consilium
+or claude_ask. Everything else is read-only; the app never changes configs from the window.
+Wiring the call log is a separate, explicit step:  python council_app.py --wire  (undo: --unwire).
 
 Usage:
   pythonw council_app.py            open the app window (default)
@@ -34,7 +37,7 @@ import urllib.request
 import webbrowser
 
 APP_NAME = "council-engine"
-APP_VERSION = "2.1.0"
+APP_VERSION = "3.0.0"
 PORT = int(os.environ.get("COUNCIL_PORT", "47615"))
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 TAP = os.path.join(APP_DIR, "council_tap.py")
@@ -656,7 +659,8 @@ class Activity:
                                       "args": args, "model": args.get("model") or args.get("judge"),
                                       "agent": args.get("agent"), "provider": args.get("provider"),
                                       "start": ev["ts"], "end": None, "ms": None, "error": None,
-                                      "chars": None, "preview": None, "logs": [], "tap_pid": tap}
+                                      "chars": None, "preview": None, "logs": [], "tap_pid": tap,
+                                      "consilium": ev.get("tool") == "consilium"}
             sess.setdefault("open", []).append(ev["call"])
             sess["current"] = ev["call"]
             sess["calls"] += 1
@@ -681,8 +685,9 @@ class Activity:
                         c["bound"] = True
                         sess["current"] = cid
                         break
-            cur = self.calls.get(sess.get("current") or "")
-            if cur and cur["end"] is None:
+            tagged = self.calls.get(ev.get("call") or "")
+            cur = tagged or self.calls.get(sess.get("current") or "")
+            if cur and (tagged or cur["end"] is None):
                 cur["logs"].append({"ts": ev["ts"], "line": line})
                 u = parse_usage(line)
                 if u:
@@ -703,6 +708,42 @@ class Activity:
     @staticmethod
     def ai_bridge_line(cur, ts, line):
         """ai-bridge (claude_bridge.py v2) prints which role calls which pool and when it falls back."""
+        m = re.search(r"Agent '([^']+)' answered via provider '([^']+)'(?: \(([^)]*)\))? in ([\d.]+)s", line)
+        if m:
+            step = next((r for r in reversed(cur.get("route") or []) if r["provider"] == m.group(2)
+                         and r.get("ok") is None and r.get("agent") in (m.group(1), None)), None)
+            if not step:
+                step = {"ts": ts, "agent": None if m.group(1) == "model_ask" else m.group(1), "provider": m.group(2)}
+                cur.setdefault("route", []).append(step)
+            step.update(ok=True, s=float(m.group(4)), model=m.group(3), done=ts)
+            return
+        m = re.search(r"Agent '([^']+)' failed: (.*)", line)
+        if m:
+            cur.setdefault("failed_agents", {})[m.group(1)] = m.group(2)[:300]
+            who = None if m.group(1) == "model_ask" else m.group(1)
+            for pid, why in re.findall(r"(\S+) \(([^)]*)\)", m.group(2)):
+                step = next((r for r in reversed(cur.get("route") or []) if r["provider"] == pid
+                             and r.get("ok") is None and r.get("agent") == who), None)
+                if step:
+                    step.update(ok=False, why=why, done=ts)
+            return
+        m = re.search(r"Consilium members: ([^;]+); chair: (\S+)", line)
+        if m:
+            cur["consilium"] = True
+            cur["council"] = {"members": [x.strip() for x in m.group(1).split(",") if x.strip()], "chair": m.group(2)}
+            return
+        m = re.search(r"Consilium chair '([^']+)' is writing the verdict", line)
+        if m:
+            cur.setdefault("council", {"members": [], "chair": m.group(1)})["verdict_ts"] = ts
+            return
+        m = re.search(r"Project context: (.+): (\d+) files, (\d+) chars", line)
+        if m:
+            cur["project"] = {"folder": m.group(1), "files": int(m.group(2)), "chars": int(m.group(3))}
+            return
+        m = re.search(r"Routing (\S+) to provider '([^']+)'", line)
+        if m:
+            cur.setdefault("route", []).append({"ts": ts, "agent": None, "provider": m.group(2), "ok": None})
+            return
         m = re.search(r"Agent '([^']+)' calling provider '([^']+)'(?:\s*\(([^)]*)\))?", line)
         if m:
             if not cur.get("consilium"):  # a consilium call has many roles; the route lists them
@@ -718,7 +759,7 @@ class Activity:
             open_steps = [r for r in reversed(cur.get("route") or []) if r["provider"] == m.group(1) and r.get("ok") is None]
             pick = next((r for r in open_steps if ma and r.get("agent") == ma.group(1)), open_steps[0] if open_steps else None)
             if pick:
-                pick.update(ok=False, why=m.group(2))
+                pick.update(ok=False, why=m.group(2), done=ts)
             else:
                 cur.setdefault("route", []).append({"ts": ts, "agent": cur.get("agent"), "provider": m.group(1),
                                                     "ok": False, "why": m.group(2)})
@@ -871,6 +912,384 @@ def wire(enable=True):
 
 # ---------------------------------------------------------------- http server
 
+# ---------------------------------------------------------------- Antigravity's own activity (read-only)
+
+AG_HOME = os.path.join(HOME, ".gemini")
+AG_CACHE = {}
+
+
+def uri_to_path(uri):
+    if not isinstance(uri, str):
+        return None
+    if uri.startswith("file://"):
+        p = urllib.parse.unquote(urllib.parse.urlparse(uri).path)
+        if IS_WIN and re.match(r"^/[A-Za-z]:", p):
+            p = p[1:]
+        return os.path.normpath(p)
+    return os.path.normpath(uri)
+
+
+def antigravity_projects():
+    out = []
+    for f in sorted(glob.glob(os.path.join(AG_HOME, "config", "projects", "*.json"))):
+        d = read_json(f) or {}
+        folders = []
+        for r in ((d.get("projectResources") or {}).get("resources") or []):
+            g = (r or {}).get("gitFolder") or (r or {}).get("folder") or {}
+            path = uri_to_path(g.get("folderUri") or g.get("uri"))
+            if path:
+                folders.append(path)
+        out.append({"id": d.get("id") or os.path.basename(f)[:-5], "name": d.get("name") or "", "folders": folders,
+                    "settings": {k: v for k, v in (d.get("settings") or {}).items() if isinstance(v, (str, bool, int))}})
+    return out
+
+
+def ag_model_code():
+    path = os.path.join(AG_HOME, "antigravity", "antigravity_state.pbtxt")
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            m = re.search(r"last_selected_agent_model:\s*(\S+)", fh.read(20000))
+        return m.group(1) if m else None
+    except OSError:
+        return None
+
+
+def ag_step(d):
+    """One transcript line, reduced to what the app shows: type, status, time, tool names and their summaries."""
+    step = {"i": d.get("step_index"), "type": d.get("type"), "source": d.get("source"), "status": d.get("status"),
+            "ts": parse_ts(d.get("created_at"))}
+    tools = []
+    for t in d.get("tool_calls") or []:
+        a = (t or {}).get("args") or {}
+        item = {"name": t.get("name"), "summary": str(a.get("toolSummary") or "")[:160],
+                "action": str(a.get("toolAction") or "")[:60]}
+        if t.get("name") == "call_mcp_tool":
+            item["server"], item["tool"] = a.get("ServerName"), a.get("ToolName")
+        tools.append(item)
+    if tools:
+        step["tools"] = tools
+    if d.get("type") == "USER_INPUT":
+        step["text"] = str(d.get("content") or "")[:300]
+    elif d.get("type") == "ERROR_MESSAGE":
+        step["text"] = str(d.get("error") or "")[:300]
+    return step
+
+
+def ag_conversation(folder):
+    logs = os.path.join(folder, ".system_generated", "logs", "transcript.jsonl")
+    try:
+        st = os.stat(logs)
+    except OSError:
+        return None
+    key = (st.st_mtime, st.st_size)
+    hit = AG_CACHE.get(logs)
+    if hit and hit[0] == key:
+        return hit[1]
+    title, steps, errors, count = None, [], 0, 0
+    try:
+        with open(logs, "rb") as fh:
+            head = fh.read(65536).decode("utf-8", errors="replace")
+            for line in head.splitlines():
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    continue
+                if d.get("type") == "USER_INPUT":
+                    title = str(d.get("content") or "").strip().splitlines()[0][:140] if d.get("content") else None
+                    break
+            fh.seek(max(0, st.st_size - 262144))
+            tail = fh.read().decode("utf-8", errors="replace").splitlines()
+        if st.st_size > 262144:
+            tail = tail[1:]
+        for line in tail:
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            steps.append(ag_step(d))
+        errors = sum(1 for x in steps if x["type"] == "ERROR_MESSAGE")
+        count = (steps[-1]["i"] + 1) if steps and isinstance(steps[-1]["i"], int) else len(steps)
+    except OSError:
+        return None
+    last = steps[-1] if steps else {}
+    conv = {"id": os.path.basename(folder), "title": title, "mtime": st.st_mtime, "size": st.st_size, "steps": count,
+            "errors_recent": errors, "last": last, "tail": steps[-40:],
+            "marks": [[x["ts"], x["type"], x["status"]] for x in steps[-200:] if x.get("ts")],
+            "running_flag": any(x.get("status") == "RUNNING" for x in steps[-3:])}
+    AG_CACHE[logs] = (key, conv)
+    return conv
+
+
+def antigravity_state(full=False):
+    convs = []
+    for d in glob.glob(os.path.join(AG_HOME, "antigravity", "brain", "*")):
+        if os.path.isdir(d):
+            try:
+                convs.append((os.path.getmtime(os.path.join(d, ".system_generated", "logs", "transcript.jsonl")), d))
+            except OSError:
+                continue
+    convs.sort(reverse=True)
+    out = []
+    for _, d in convs[:6 if full else 1]:
+        c = ag_conversation(d)
+        if c:
+            c = dict(c)
+            # RUNNING on the last lines means a step is in progress; a stale file means Antigravity stopped mid-step
+            c["active"] = c["running_flag"] and now() - c["mtime"] < 180
+            c["recent"] = now() - c["mtime"] < 120
+            if not full:
+                c.pop("tail", None)
+            out.append(c)
+    return {"home": AG_HOME, "found": os.path.isdir(os.path.join(AG_HOME, "antigravity")),
+            "model_code": ag_model_code(), "conversations": out, "projects": antigravity_projects() if full else None,
+            "exe": antigravity_exe()}
+
+
+def antigravity_exe():
+    if not IS_WIN:
+        return None
+    for root in (os.environ.get("LOCALAPPDATA"), os.environ.get("ProgramFiles")):
+        if root:
+            p = os.path.join(root, "Programs", "antigravity", "Antigravity.exe") if root == os.environ.get("LOCALAPPDATA") \
+                else os.path.join(root, "Antigravity", "Antigravity.exe")
+            if os.path.isfile(p):
+                return p
+    return None
+
+
+# ---------------------------------------------------------------- projects the chat can work with
+
+def project_roots():
+    env = os.environ.get("COUNCIL_PROJECT_ROOTS")
+    if env:
+        return [p for p in env.split(os.pathsep) if p]
+    return [r"C:\projects"] if IS_WIN else [os.path.join(HOME, "projects")]
+
+
+def list_projects():
+    seen, out = set(), []
+
+    def add(path, name, source):
+        if not path or not os.path.isdir(path):
+            return
+        k = os.path.normcase(os.path.abspath(path))
+        if k in seen:
+            for x in out:
+                if os.path.normcase(os.path.abspath(x["path"])) == k and source not in x["source"]:
+                    x["source"].append(source)
+            return
+        seen.add(k)
+        out.append({"path": os.path.abspath(path), "name": name or os.path.basename(path.rstrip("\\/")),
+                    "source": [source], "git": os.path.isdir(os.path.join(path, ".git")),
+                    "mtime": os.path.getmtime(path)})
+    for p in antigravity_projects():
+        for f in p["folders"]:
+            add(f, p["name"], "Antigravity")
+    for root in project_roots():
+        try:
+            for n in sorted(os.listdir(root)):
+                if not n.startswith(".") and os.path.isdir(os.path.join(root, n)):
+                    add(os.path.join(root, n), n, root)
+        except OSError:
+            continue
+    for j in CHAT.history[-50:]:
+        add(j.get("folder"), None, "чат")
+    return out
+
+
+# ---------------------------------------------------------------- chat: requests through the same MCP bridge
+
+CHAT_MODES = {
+    "role": ("agent_run", "task"),
+    "model": ("model_ask", "question"),
+    "consilium": ("consilium", "task"),
+    "claude": ("claude_ask", "question"),
+}
+
+
+class Chat:
+    """Keeps one bridge process (through council_tap.py, so every request lands in the call log) and the dialogue."""
+
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.proc = None
+        self.server = None
+        self.rpc = 0
+        self.pending = {}
+        self.jobs = []
+        self.history = []
+        self.folder = os.path.join(COUNCIL_HOME, "chat")
+        self.file = os.path.join(self.folder, "history.jsonl")
+        self.load()
+
+    def load(self):
+        try:
+            with open(self.file, "r", encoding="utf-8") as fh:
+                for line in fh.readlines()[-200:]:
+                    try:
+                        self.history.append(json.loads(line))
+                    except Exception:
+                        pass
+        except OSError:
+            pass
+        self.jobs = list(self.history[-100:])
+
+    def save(self, job):
+        try:
+            os.makedirs(self.folder, exist_ok=True)
+            with open(self.file, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps({k: v for k, v in job.items() if not k.startswith("_")}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+        self.history.append(job)
+
+    def core_server(self):
+        servers = [s for s in collect_servers() if s.get("kind") == "stdio" and s.get("file") and os.path.isfile(s["file"])]
+        with_cfg = [s for s in servers if os.path.isfile(os.path.join(os.path.dirname(s["file"]), "providers.json"))]
+        for pool in (with_cfg, [s for s in servers if s["name"] == "claude-bridge"]):
+            pool = sorted(pool, key=lambda s: (s["client"] != "antigravity", s["name"] != "claude-bridge"))
+            if pool:
+                return pool[0]
+        return None
+
+    def alive(self):
+        return self.proc is not None and self.proc.poll() is None
+
+    def start(self):
+        s = self.core_server()
+        if not s:
+            raise RuntimeError("мост с providers.json не найден в настройках Antigravity и Claude Code")
+        env = os.environ.copy()
+        env.update({k: str(v) for k, v in (s.get("_env") or {}).items()})
+        cmd = [tap_python(), TAP, "--server", s["name"], "--client", "council-engine", "--",
+               python_for(s["command"]) if "python" in os.path.basename(s["command"] or "").lower() else s["command"]] + s["args"]
+        self.proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                                     cwd=os.path.dirname(s["file"]), env=env, creationflags=NO_WINDOW)
+        self.server = s["name"]
+        threading.Thread(target=self.reader, args=(self.proc,), daemon=True).start()
+        self.request("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
+                                    "clientInfo": {"name": "council-engine", "version": APP_VERSION}})
+        self.write({"jsonrpc": "2.0", "method": "notifications/initialized"})
+
+    def write(self, msg):
+        data = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")
+        self.proc.stdin.write(data)
+        self.proc.stdin.flush()
+
+    def request(self, method, params, job=None):
+        with self.lock:
+            self.rpc += 1
+            rid = self.rpc
+            self.pending[rid] = job
+        self.write({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
+        return rid
+
+    def reader(self, proc):
+        for line in proc.stdout:
+            try:
+                msg = json.loads(line.decode("utf-8", errors="replace"))
+            except Exception:
+                continue
+            if not isinstance(msg, dict) or "id" not in msg or "method" in msg:
+                continue
+            with self.lock:
+                job = self.pending.pop(msg["id"], None)
+            if not job:
+                continue
+            res = msg.get("result") or {}
+            text = "".join(p.get("text", "") for p in res.get("content") or [] if isinstance(p, dict))
+            if "error" in msg:
+                text = "BRIDGE_ERROR: " + json.dumps(msg["error"], ensure_ascii=False)
+            job.update(status="error" if (res.get("isError") or "error" in msg) else "done", answer=text,
+                       end=now(), ms=int((now() - job["ts"]) * 1000))
+            self.save(job)
+        # the bridge process ended: whatever was still waiting will not get an answer
+        with self.lock:
+            left = [j for j in self.pending.values() if j]
+            self.pending.clear()
+        for job in left:
+            if job["status"] == "running":
+                job.update(status="error", answer="Мост завершился, ответа не было.", end=now(),
+                           ms=int((now() - job["ts"]) * 1000))
+                self.save(job)
+
+    def send(self, body):
+        mode = body.get("mode") or "role"
+        if mode not in CHAT_MODES:
+            raise ValueError("неизвестный режим")
+        text = str(body.get("text") or "").strip()
+        if not text:
+            raise ValueError("пустое сообщение")
+        folder = str(body.get("folder") or "").strip() or None
+        if folder and not os.path.isdir(folder):
+            raise ValueError("папка проекта не найдена: " + folder)
+        if mode == "claude" and not folder:
+            raise ValueError("для Claude Code нужна папка проекта")
+        tool, field = CHAT_MODES[mode]
+        task = text
+        if body.get("follow") and self.history:
+            prev = [j for j in self.history if j.get("status") == "done"][-2:]
+            if prev:
+                ctx = "\n\n".join(f"Вопрос: {j['text'][:1500]}\nОтвет: {j['answer'][:3000]}" for j in prev)
+                task = f"Предыдущие сообщения этого разговора:\n{ctx}\n\nНовое сообщение:\n{text}"
+        args = {field: task}
+        if folder:
+            args["work_folder"] = folder
+        if mode == "role":
+            args["agent"] = str(body.get("agent") or "")
+        if mode == "model":
+            args["provider"] = str(body.get("provider") or "")
+        files = str(body.get("files") or "").strip()
+        if files and mode != "claude":
+            args["files"] = files
+        job = {"id": "%x" % int(now() * 1000), "ts": now(), "mode": mode, "tool": tool, "agent": args.get("agent"),
+               "provider": args.get("provider"), "folder": folder, "text": text, "follow": bool(body.get("follow")) and task != text,
+               "status": "running", "answer": None, "end": None, "ms": None, "call": None}
+        with self.lock:
+            if not self.alive():
+                self.start()
+            tap = self.proc.pid
+        job["tap_pid"] = tap
+        self.jobs.append(job)
+        self.jobs = self.jobs[-100:]
+        self.request("tools/call", {"name": tool, "arguments": args}, job)
+        return job
+
+    def stop(self):
+        with self.lock:
+            p, self.proc = self.proc, None
+        if p and p.poll() is None:
+            try:
+                p.terminate()
+                p.wait(timeout=5)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
+
+    def link(self, calls):
+        """Tie each chat request to its entry in the call log: same tap process, same tool, started right after."""
+        taken = {j.get("call") for j in self.jobs if j.get("call")}
+        for j in self.jobs:
+            if j.get("call") or not j.get("tap_pid"):
+                continue
+            for c in sorted(calls, key=lambda c: c["start"]):
+                if c["tap_pid"] == j["tap_pid"] and c["tool"] == j["tool"] and c["id"] not in taken \
+                        and j["ts"] - 2 <= c["start"] <= j["ts"] + 30:
+                    j["call"] = c["id"]
+                    taken.add(c["id"])
+                    break
+
+    def state(self, calls):
+        self.link(calls)
+        return {"jobs": [{k: v for k, v in j.items() if not k.startswith("_")} for j in self.jobs[-60:]],
+                "bridge": {"alive": self.alive(), "pid": self.proc.pid if self.alive() else None, "server": self.server}}
+
+
+CHAT = Chat()
+
+
 WATCHER = ProcessWatcher()
 ACTIVITY = Activity()
 LAST_BEAT = [None]
@@ -898,40 +1317,71 @@ def build_config(force=False):
     return data
 
 
+AG_STATE = {"ts": 0, "data": None}
+
+
 def build_state():
     procs = WATCHER.get()
     alive_taps = {p["pid"] for p in procs["items"] if p["group"] == "tap"}
+    if CHAT.alive():
+        alive_taps.add(CHAT.proc.pid)  # the process list refreshes every 4 s; the chat's own bridge is known now
     activity = ACTIVITY.state(alive_taps)
     system = read_system()
     activity["ledger_calls"] = ledger_matches(system, activity["calls"])
-    return {"ts": now(), "processes": procs, "activity": activity, "system": system}
+    if now() - AG_STATE["ts"] > 2:
+        try:
+            AG_STATE.update(ts=now(), data=antigravity_state(full=False))
+        except Exception as e:
+            AG_STATE.update(ts=now(), data={"error": str(e)})
+    return {"ts": now(), "processes": procs, "activity": activity, "system": system,
+            "chat": CHAT.state(activity["calls"]), "antigravity": AG_STATE["data"]}
+
+
+STATIC = {".js": "text/javascript; charset=utf-8", ".woff2": "font/woff2", ".css": "text/css; charset=utf-8",
+          ".txt": "text/plain; charset=utf-8"}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def send(self, code, body, ctype="application/json; charset=utf-8"):
+    def send(self, code, body, ctype="application/json; charset=utf-8", cache="no-store"):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         elif isinstance(body, str):
             body = body.encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self):
+    def local(self):
         host = (self.headers.get("Host") or "").split(":")[0]
-        if host not in ("127.0.0.1", "localhost"):
+        return host in ("127.0.0.1", "localhost")
+
+    def do_GET(self):
+        if not self.local():
             return self.send(403, {"error": "local only"})
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
         if u.path in ("/", "/index.html"):
             with open(os.path.join(APP_DIR, "ui", "index.html"), "rb") as fh:
                 return self.send(200, fh.read(), "text/html; charset=utf-8")
+        if u.path.startswith(("/vendor/", "/fonts/")):
+            # only files shipped with the app: three.js and the two typefaces
+            root = os.path.realpath(os.path.join(APP_DIR, "ui"))
+            path = os.path.realpath(os.path.join(root, *urllib.parse.unquote(u.path).strip("/").split("/")))
+            ext = os.path.splitext(path)[1].lower()
+            if not path.startswith(root + os.sep) or ext not in STATIC or not os.path.isfile(path):
+                return self.send(404, {"error": "not found"})
+            with open(path, "rb") as fh:
+                return self.send(200, fh.read(), STATIC[ext], cache="max-age=3600")
+        if u.path == "/api/antigravity":
+            return self.send(200, antigravity_state(full=True))
+        if u.path == "/api/projects":
+            return self.send(200, {"projects": list_projects(), "roots": project_roots()})
         if u.path == "/api/ping":
             return self.send(200, {"app": APP_NAME, "version": APP_VERSION})
         if u.path == "/api/state":
@@ -946,6 +1396,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return self.send(403, {"error": "этот файл не входит в список правил"})
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
                 return self.send(200, {"path": path, "text": fh.read(200000)})
+        return self.send(404, {"error": "not found"})
+
+    def do_POST(self):
+        # requests that spend tokens or open programs: same origin only, JSON only, with the app's own header
+        origin = self.headers.get("Origin")
+        if not self.local() or self.headers.get("X-Council") != "1" or \
+                (origin and urllib.parse.urlparse(origin).hostname not in ("127.0.0.1", "localhost")):
+            return self.send(403, {"error": "local only"})
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(min(n, 2_000_000)).decode("utf-8")) if n else {}
+        except Exception:
+            return self.send(400, {"error": "bad json"})
+        u = urllib.parse.urlparse(self.path)
+        try:
+            if u.path == "/api/chat":
+                job = CHAT.send(body)
+                return self.send(200, {k: v for k, v in job.items() if not k.startswith("_")})
+            if u.path == "/api/chat/stop":
+                CHAT.stop()
+                return self.send(200, {"ok": True})
+            if u.path == "/api/antigravity/open":
+                exe = antigravity_exe()
+                folder = str(body.get("folder") or "")
+                known = {os.path.normcase(p["path"]) for p in list_projects()}
+                if not exe:
+                    return self.send(404, {"error": "Antigravity.exe не найден"})
+                if os.path.normcase(os.path.abspath(folder)) not in known:
+                    return self.send(403, {"error": "папки нет в списке проектов"})
+                subprocess.Popen([exe, folder], creationflags=NO_WINDOW, close_fds=True)
+                return self.send(200, {"ok": True})
+        except (ValueError, RuntimeError) as e:
+            return self.send(400, {"error": str(e)})
+        except Exception as e:
+            return self.send(500, {"error": str(e)})
         return self.send(404, {"error": "not found"})
 
 
@@ -1006,6 +1491,7 @@ def serve(open_ui):
         beat = LAST_BEAT[0]
         # the window polls every 2 s; when it has been closed for a while, the app exits on its own
         if (beat and now() - beat > 150) or (not beat and now() - started > 180):
+            CHAT.stop()
             httpd.shutdown()
             return
 
