@@ -65,6 +65,13 @@ foreach ($plugin in $devPlugins) {
     Write-Host " [OK]" -ForegroundColor Green
 }
 
+# 5.1 Install Long-Term Memory (claude-mem)
+Write-Host "  -> Подключение маркетплейса thedotmack/claude-mem..." -NoNewline
+& $claudeBin plugin marketplace add thedotmack/claude-mem 2>&1 | Out-Null
+& $claudeBin plugin install claude-mem 2>&1 | Out-Null
+Write-Host " [OK] (claude-mem установлен)" -ForegroundColor Green
+
+
 # 6. Configure MultiLLM MCP & Token-Saving Architecture
 Write-Host "`n[3/3] Подключение системы ЭКОНОМИИ ТОКЕНОВ (DeepSeek 10M, GPT-6, CVC)..." -ForegroundColor Yellow
 
