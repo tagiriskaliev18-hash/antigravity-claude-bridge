@@ -98,6 +98,14 @@ if ($NoPlugin) {
     $claudeExe = if ($claude.Source) { $claude.Source } else { $claude.FullName }
     $repoRoot = Split-Path -Parent $PSScriptRoot
     $ErrorActionPreference = "Continue"
+    $servers = (& $claudeExe mcp list 2>&1 | Out-String)
+    $ErrorActionPreference = "Stop"
+}
+if (-not $NoPlugin -and $claude -and $servers -match "(?m)^claude-bridge:") {
+    # the bridge is already registered in Claude Code by hand; the plugin would start a second copy of it
+    Write-Host "  claude-bridge is already connected to Claude Code (claude mcp list): plugin skipped." -ForegroundColor Green
+} elseif (-not $NoPlugin -and $claude) {
+    $ErrorActionPreference = "Continue"
     # the marketplace is this clone: /multimodel:consilium, :auto, :ask-model, :models and the ai-bridge MCP server
     & $claudeExe plugin marketplace add $repoRoot 2>&1 | Out-Null
     & $claudeExe plugin marketplace update council-engine 2>&1 | Out-Null
