@@ -89,6 +89,8 @@ code{font:400 .86em var(--mono);font-stretch:87.5%;color:var(--fg)}
 .fam.off b{color:var(--fg3)} .fam.off small{color:var(--bad)}
 .sw{width:7px;height:7px;border-radius:50%;flex:none;display:inline-block}
 .sw.hollow{background:transparent!important;border:1px solid currentColor}
+.lg{width:13px;height:13px;flex:none;display:inline-block;vertical-align:-2px;fill:currentColor}
+.lg.hollow{fill:none;stroke:currentColor;stroke-width:1.3;opacity:.8}
 .live{display:flex;flex-direction:column;gap:5px;font-size:13px}
 .live div{display:flex;align-items:center;gap:8px;min-width:0}
 .live small{margin-left:auto;color:var(--fg3);font:400 10.5px var(--mono);font-stretch:87.5%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
@@ -332,6 +334,7 @@ textarea:focus,select:focus,input:focus{border-color:var(--line3);outline:none}
 <div class="notices" id="notices" aria-live="polite"></div>
 <div class="tl-tip" id="tip" hidden></div>
 
+<script src="/vendor/lobe-icons/logos.js"></script>
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
@@ -521,7 +524,10 @@ const provTok = id => SYS.tokRows.find(r => r.key === id) || null;
 const cliOk = () => !!CFG.claude_cli;
 const poolLabel = id => { const p = SYS?.prov[id]; return p ? FAM[p.fam].n + " · " + (p.model || id) : id; };
 const roleName = id => SYS?.agent[id]?.name || id;
-const sw = (k, hollow) => `<span class="sw${hollow ? " hollow" : ""}" style="background:${FAM[k].c};color:${FAM[k].c}"></span>`;
+const LOGOS = window.CE_LOGOS || {};
+const logoSvg = (key, color, cls = "") => LOGOS[key] ? `<svg class="lg ${cls}" viewBox="0 0 24 24" style="color:${color}" aria-hidden="true">${LOGOS[key].d.map(d => `<path fill-rule="evenodd" d="${d}"/>`).join("")}</svg>` : "";
+// a family is shown by its maker's mark; families without one keep the coloured dot
+const sw = (k, hollow) => logoSvg(k, FAM[k].c, hollow ? "hollow" : "") || `<span class="sw${hollow ? " hollow" : ""}" style="background:${FAM[k].c};color:${FAM[k].c}"></span>`;
 
 // ---------- side column
 function renderSide(){
@@ -737,15 +743,15 @@ function renderView(){
 const GLYPH = {
   core:`<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="#ffd9a0"/><circle cx="6" cy="6" r="5.3" fill="none" stroke="#a7b3bd" stroke-width=".8"/></svg>`,
   role:`<svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1 11 6 6 11 1 6z" fill="#80bdfb"/></svg>`,
-  pool:`<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="#6cd5b3"/></svg>`,
-  nokey:`<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#a7b3bd" stroke-width="1" stroke-dasharray="2 1.5"/></svg>`,
+  pool:logoSvg("deepseek", "#80bdfb") || `<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="#6cd5b3"/></svg>`,
+  nokey:logoSvg("gemini", "#a7b3bd", "hollow") || `<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#a7b3bd" stroke-width="1" stroke-dasharray="2 1.5"/></svg>`,
   call:`<svg width="18" height="12" viewBox="0 0 18 12"><path d="M1 6h11" stroke="#feb354" stroke-width="1.2" stroke-opacity=".5"/><circle cx="14" cy="6" r="2.6" fill="#feb354"/></svg>`,
   fail:`<svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4.6" fill="none" stroke="#ef675a" stroke-width="1.2"/></svg>`};
 function renderCaption(){
   setHTML("#hint", !SCENE_OK ? "Трёхмерная карта на этом компьютере не запустилась (WebGL недоступен). Все разделы слева работают." : SYS.agents.length
     ? `В центре мост ${esc(SYS.core?.name || "")} и кольцо его ${SYS.tools.length} инструментов. Ближняя орбита: ${SYS.agents.length} ${plural(SYS.agents.length, "роль", "роли", "ролей")}, дальний пояс: ${SYS.providers.length} ${plural(SYS.providers.length, "пул", "пула", "пулов")} моделей по семействам. Над плоскостью: Antigravity, Claude Code и чат. Перетаскивай мышью, колесо приближает, щелчок по узлу открывает подробности.`
     : "Роли и пулы моделей не найдены рядом с мостом. Видны клиенты и MCP-серверы из настроек.");
-  setHTML("#legend", `<span>${GLYPH.core}ядро-мост</span><span>${GLYPH.role}роль</span><span>${GLYPH.pool}пул с ключом</span><span>${GLYPH.nokey}пул без ключа</span><span>${GLYPH.call}идёт вызов</span><span>${GLYPH.fail}пул не ответил</span>`);
+  setHTML("#legend", `<span>${GLYPH.core}ядро-мост</span><span>${GLYPH.role}роль</span><span>${GLYPH.pool}пул с ключом: логотип семейства модели</span><span>${GLYPH.nokey}контур: пул без ключа</span><span>${GLYPH.call}идёт вызов</span><span>${GLYPH.fail}пул не ответил</span>`);
 }
 
 function viewRoles(){
@@ -769,7 +775,7 @@ function viewRoles(){
         <div class="chain">${a.chain.map((id, i) => { const p = SYS.prov[id], k = p ? p.fam : famOf(id); return `<span class="chip" title="${esc(p ? p.model : "пула нет в providers.json")}">${sw(k, p && p.keyState === "missing")}<span class="i">${i+1}</span>${esc(id)}</span>`; }).join('<span class="arrow">›</span>')}</div>
         ${a.skills.length ? `<div class="chain">${a.skills.map(k => `<span class="chip"><span class="i">навык</span>${esc(k)}</span>`).join("")}</div>` : ""}
       </div>`; }).join("")}</div>
-    <p class="note" style="margin-top:14px">Цепочка читается слева направо: первым идёт основной пул, дальше запасные. Пул с полым кружком сейчас без ключа: мост его пропустит. Если пул ответил ошибкой или лимитом, мост берёт следующий, и это видно на карте и в журнале.</p>
+    <p class="note" style="margin-top:14px">Цепочка читается слева направо: первым идёт основной пул, дальше запасные. Пул, у которого логотип нарисован только контуром, сейчас без ключа: мост его пропустит. Если пул ответил ошибкой или лимитом, мост берёт следующий, и это видно на карте и в журнале.</p>
     ${consilium && C ? `<h3 class="sec">Консилиум <small>инструмент consilium(task) · состав из agents.json</small></h3>
       <div class="row">${cons.map(id => chipOf(SYS.agent[id])).join('<span class="arrow">+</span>')}${chair ? `<span class="arrow">⇒</span><span class="faint" style="font-size:12px">председатель</span>${chipOf(chair)}` : ""}<button class="btn" data-act="ask-council" style="margin-left:8px">Созвать из чата</button></div>
       <p class="note" style="margin-top:10px">${esc(consilium.description || "")}${C.note ? " " + esc(C.note) : ""} Каждый участник идёт по своей цепочке пулов. Пока консилиум идёт, сверху экрана висит карточка: кто из участников думает, кто ответил и на какой модели, кто перешёл на запасной пул. Полный протокол мост сохраняет в папку consilium рядом с собой.</p>` : ""}
@@ -1442,6 +1448,7 @@ import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { SVGLoader } from "three/addons/loaders/SVGLoader.js";
 
 const CE = window.CE;
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1473,9 +1480,52 @@ controls.addEventListener("start", () => { lastInput = performance.now(); contro
 
 const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
-const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.85, 0.55, 0.16);
+const bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.8, 0.5, 0.5);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+
+// ---- light for the logos: the bridge star in the centre, a soft fill and a headlight that follows the camera
+scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+scene.add(new THREE.PointLight(0xffe2b8, 2.2, 0, 0));
+const headlight = new THREE.DirectionalLight(0xffffff, 1.25); headlight.position.set(0.5, 0.8, 1); camera.add(headlight); scene.add(camera);
+
+// ---- 3D logos: the maker's mark extruded from its SVG path (data in /vendor/lobe-icons/logos.js)
+const LOGOS = window.CE_LOGOS || {}, LOGO_GEO = new Map();
+function logoGeo(key){
+  if (LOGO_GEO.has(key)) return LOGO_GEO.get(key);
+  let g = null;
+  const L = LOGOS[key];
+  if (L) try {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">${L.d.map(d => `<path fill-rule="evenodd" d="${d}"/>`).join("")}</svg>`;
+    const shapes = [];
+    new SVGLoader().parse(svg).paths.forEach(p => SVGLoader.createShapes(p).forEach(sh => shapes.push(sh)));
+    g = new THREE.ExtrudeGeometry(shapes, {depth:3.2, bevelEnabled:true, bevelThickness:0.7, bevelSize:0.45, bevelSegments:3, curveSegments:10});
+    g.rotateX(Math.PI);  // SVG y points down; a rotation (not a mirror) keeps the mark readable from the front
+    g.center(); g.computeBoundingBox();
+    const b = g.boundingBox, size = Math.max(b.max.x - b.min.x, b.max.y - b.min.y);
+    g.scale(3.1/size, 3.1/size, 3.1/size); g.computeVertexNormals();
+  } catch (e) { console.warn("logo " + key, e); g = null; }
+  LOGO_GEO.set(key, g); return g;
+}
+// Antigravity's mark is multicoloured: paint its vertices along the arch in its four colours
+function paintArch(g){
+  g.computeBoundingBox(); const b = g.boundingBox, pos = g.getAttribute("position"), col = new Float32Array(pos.count*3), c = new THREE.Color();
+  const stops = [0x00b95c, 0xfbbc04, 0xfc413d, 0x3186ff].map(h => new THREE.Color(h));
+  for (let i = 0; i < pos.count; i++) {
+    const u = (pos.getX(i) - b.min.x)/(b.max.x - b.min.x || 1), f = Math.min(2.999, u*3), k = Math.floor(f);
+    c.copy(stops[k]).lerp(stops[k + 1], f - k); col.set([c.r, c.g, c.b], i*3);
+  }
+  g.setAttribute("color", new THREE.BufferAttribute(col, 3));
+}
+function logoMesh(key, color, opts = {}){
+  let geo = logoGeo(key); if (!geo) return null;
+  if (opts.arch) { geo = geo.clone(); paintArch(geo); }
+  const mat = new THREE.MeshStandardMaterial({color:opts.arch ? 0xffffff : color, vertexColors:!!opts.arch, metalness:0.25, roughness:0.38,
+    emissive:opts.arch ? 0x223355 : color, emissiveIntensity:0.1, transparent:!!opts.hollow, opacity:opts.hollow ? 0.22 : 1, depthWrite:!opts.hollow});
+  const m = new THREE.Mesh(geo, mat);
+  if (opts.hollow) m.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo, 30), new THREE.LineBasicMaterial({color, transparent:true, opacity:.55})));
+  return m;
+}
 
 // ---- textures drawn once
 function radial(stops, size = 128){
@@ -1602,12 +1652,13 @@ function build(m){
     if (!p) return;
     const a = i*per, g = new THREE.Group(); g.position.set(R_POOL*Math.cos(a), 0, R_POOL*Math.sin(a));
     const col = new THREE.Color(p.color);
-    const body = new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({color:col.clone(), wireframe:!p.key, transparent:!p.key, opacity:p.key ? 1 : .55}));
+    const mark = logoMesh(p.fam, col, {hollow:!p.key}), holder = new THREE.Group();
+    const body = mark || new THREE.Mesh(SPH, new THREE.MeshBasicMaterial({color:col.clone(), wireframe:!p.key, transparent:!p.key, opacity:p.key ? 1 : .55}));
     const glow = new THREE.Sprite(spriteMat(TEX_GLOW, col.clone(), p.key ? .18 : 0)); glow.scale.setScalar(6);
-    g.add(body, glow);
-    const lb = label("pool", p.id, p.model); lb.position.set(0, -1.2, 0); g.add(lb);
+    holder.add(body); g.add(holder, glow);
+    const lb = label("pool", p.id, p.model); lb.position.set(0, mark ? -1.7 : -1.2, 0); g.add(lb);
     poolSpin.add(g); addHit(g, "pool:" + p.id, 2.2);
-    NODES.set("pool:" + p.id, {type:"pool", id:p.id, obj:g, mesh:body, glow, label:lb, base:col, key:p.key, heat:0, fail:0});
+    NODES.set("pool:" + p.id, {type:"pool", id:p.id, obj:g, mesh:body, holder:mark ? holder : null, glow, label:lb, base:col, key:p.key, heat:0, fail:0, phase:i*1.7, spin:0});
     (famSpan[p.fam] = famSpan[p.fam] || []).push(a);
   });
   // family arcs and names outside the belt
@@ -1625,16 +1676,25 @@ function build(m){
   const CPOS = {antigravity:[-38, 20, -16], "claude-code":[38, 20, -16], "council-engine":[0, 28, -40]};
   m.clients.forEach(c => {
     const g = new THREE.Group(); g.position.set(...CPOS[c.key]);
-    const hex = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.CylinderGeometry(2, 2, 0.7, 6)), new THREE.LineBasicMaterial({color:0xeaeff3, transparent:true, opacity:.7}));
-    const disc = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.1, 0.3, 6), new THREE.MeshBasicMaterial({color:0xa7b3bd}));
+    const holder = new THREE.Group();
+    let mark = c.key === "antigravity" ? logoMesh("antigravity", null, {arch:true}) : c.key === "claude-code" ? logoMesh("claude-code", new THREE.Color(0xeb8f72)) : null;
+    if (mark) mark.scale.setScalar(1.15);
+    if (!mark) {  // Council Engine: an orbit around a warm star, like its icon
+      mark = new THREE.Group();
+      const star = new THREE.Mesh(new THREE.SphereGeometry(0.7, 24, 16), new THREE.MeshStandardMaterial({color:0xfeb354, emissive:0xfeb354, emissiveIntensity:0.5, transparent:true}));
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(1.7, 0.09, 8, 64), new THREE.MeshStandardMaterial({color:0xa7b3bd, metalness:.4, roughness:.3, transparent:true}));
+      ring.rotation.set(1.25, 0, -0.32); mark.add(star, ring); mark.userData.parts = [star.material, ring.material];
+    }
+    const hex = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.CylinderGeometry(2.3, 2.3, 0.1, 6)), new THREE.LineBasicMaterial({color:0xeaeff3, transparent:true, opacity:.25}));
+    hex.position.y = -2.1;
     const glow = new THREE.Sprite(spriteMat(TEX_GLOW, LIVE.clone(), 0)); glow.scale.setScalar(10);
-    g.add(hex, disc, glow);
-    const lb = label("client", c.name, ""); lb.position.set(0, -2, 0); g.add(lb);
+    holder.add(mark); g.add(holder, hex, glow);
+    const lb = label("client", c.name, ""); lb.position.set(0, -2.4, 0); g.add(lb);
     scene.add(g); addHit(g, "client:" + c.key, 3);
     const pts = [new THREE.Vector3(), new THREE.Vector3()];
     const link = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({color:0xa7b3bd, dashSize:1, gapSize:1.2, transparent:true, opacity:.25}));
     scene.add(link); g.userData.link = link;
-    NODES.set("client:" + c.key, {type:"client", id:c.key, obj:g, mesh:disc, edge:hex, glow, label:lb, link});
+    NODES.set("client:" + c.key, {type:"client", id:c.key, obj:g, mark, holder, edge:hex, glow, label:lb, link, phase:c.key.length, spin:0});
   });
   // links role > pools: one buffer for all, updated every frame as the orbits turn
   LINKS.length = 0;
@@ -1670,7 +1730,7 @@ window.SCENE = {
     M = m;
     setLabel(coreLabel, m.core.name, m.core.tools.length + " инструментов");
     m.roles.forEach(r => { const n = NODES.get("role:" + r.id); if (n) { n.calls = r.calls; n.obj.scale.setScalar(0.9 + Math.min(1.2, Math.log10(1 + r.calls)*0.45)); } });
-    m.pools.forEach(p => { const n = NODES.get("pool:" + p.id); if (n) n.obj.scale.setScalar(0.7 + Math.min(1.3, Math.log10(1 + p.tokens)*0.19)); });
+    m.pools.forEach(p => { const n = NODES.get("pool:" + p.id); if (n) n.obj.scale.setScalar(0.85 + Math.min(1.15, Math.log10(1 + p.tokens)*0.17)); });
     m.fams.forEach(f => { const n = NODES.get("fam:" + f.key); if (n) setLabel(n.label, f.name, f.sub); });
     m.clients.forEach(c => { const n = NODES.get("client:" + c.key); if (!n) return; n.alive = c.alive; n.active = c.active;
       setLabel(n.label, c.name, c.active ? "работает" : c.alive ? "запущен" : "не запущен"); n.label.userData.el.lastChild.className = c.active ? "st" : ""; });
@@ -1688,7 +1748,7 @@ window.SCENE = {
       else if (e.kind === "fail") pulse(new THREE.Vector3(), BAD.clone(), 14); });
     if (SEEN.size > 2000) SEEN.clear();
     if (m.selected !== selected) { selected = m.selected; focusOn(selected); }
-    if (m.view !== viewName) { viewName = m.view; document.getElementById("labels").classList.toggle("off", viewName !== "sys"); bloom.strength = viewName === "sys" ? 0.85 : 0.5; }
+    if (m.view !== viewName) { viewName = m.view; document.getElementById("labels").classList.toggle("off", viewName !== "sys"); bloom.strength = viewName === "sys" ? 0.8 : 0.5; }
     recolorLinks();
   }
 };
@@ -1824,14 +1884,24 @@ function tick(){
       n.glow.material.color.copy(n.fail > 0.02 ? BAD : working ? LIVE : n.base);
       n.glow.material.opacity = n.key ? 0.16 + n.heat*0.55 + n.fail*0.6 : n.fail*0.6;
       if (n.key) n.mesh.material.color.copy(n.base).lerp(BAD, n.fail*0.8);
+      if (n.holder) {
+        // the mark turns to the viewer and sways so its depth shows; while the model answers it spins and glows
+        n.spin = working ? n.spin + dt*3.2 : n.spin*Math.pow(0.04, dt);
+        n.holder.lookAt(camera.position); n.holder.rotateY((reduce ? 0 : Math.sin(t*0.55 + n.phase)*0.5) + n.spin);
+        if (n.key) { n.mesh.material.emissive.copy(n.fail > 0.02 ? BAD : n.base); n.mesh.material.emissiveIntensity = 0.1 + n.heat*0.6 + n.fail*0.6; }
+      }
     }
     if (n.type === "client") {
       n.glow.material.opacity = n.active ? 0.35 + 0.2*Math.sin(t*4) : 0;
-      n.edge.material.opacity = n.alive ? 0.8 : 0.25; n.mesh.material.color.setHex(n.active ? 0xfeb354 : n.alive ? 0xeaeff3 : 0x3a434c);
+      n.edge.material.opacity = n.active ? 0.6 : n.alive ? 0.3 : 0.1;
+      // a client that is not running is a faint ghost of its mark
+      (n.mark.userData.parts || [n.mark.material]).forEach(m => { m.opacity = n.alive ? 1 : 0.28; m.transparent = !n.alive; m.depthWrite = !!n.alive;
+        if (m.emissive) m.emissiveIntensity = n.active ? 0.55 + 0.25*Math.sin(t*4) : n.alive ? 0.2 : 0.05; });
+      n.spin = n.active ? n.spin + dt*2.4 : n.spin*Math.pow(0.04, dt);
+      n.holder.lookAt(camera.position); n.holder.rotateY((reduce ? 0 : Math.sin(t*0.45 + n.phase)*0.4) + n.spin);
       const p = n.link.geometry.getAttribute("position"); n.obj.getWorldPosition(tmpV);
       p.setXYZ(0, tmpV.x, tmpV.y, tmpV.z); p.setXYZ(1, 0, 0, 0); p.needsUpdate = true; n.link.computeLineDistances();
       n.link.material.opacity = n.active ? 0.6 : n.alive ? 0.3 : 0.1; n.link.material.color.copy(n.active ? LIVE : STEEL);
-      n.obj.rotation.y += dt*0.25;
     }
     if (n.label && n.type !== "fam" && n.type !== "tool") {
       n.obj.getWorldPosition(tmpV); const d = camera.position.distanceTo(tmpV);

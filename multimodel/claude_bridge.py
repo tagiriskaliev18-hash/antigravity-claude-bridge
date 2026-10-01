@@ -1241,6 +1241,8 @@ def main():
         import io
         sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
         sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        # the log goes to a pipe too (Antigravity, the Council Engine tap): keep it UTF-8, not the ANSI code page
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace", line_buffering=True)
     log(f"ai-bridge MCP server starting (v{VERSION}, настройки: {home_dir()})...")
     # tool calls run in threads, so a long consilium does not block ping or a second call
     pool = ThreadPoolExecutor(max_workers=4)

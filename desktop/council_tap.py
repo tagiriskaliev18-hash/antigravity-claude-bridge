@@ -10,6 +10,7 @@ Logging never blocks or alters the proxied traffic: if a log write fails, the
 call still goes through.
 """
 import json
+import locale
 import os
 import re
 import subprocess
@@ -173,7 +174,11 @@ def main(argv):
                 err.flush()
             except Exception:
                 pass
-            text = line.decode("utf-8", errors="replace").rstrip()
+            try:
+                text = line.decode("utf-8").rstrip()
+            except UnicodeDecodeError:
+                # older bridges on Windows log in the ANSI code page (cp1251 for Russian)
+                text = line.decode(locale.getpreferredencoding(False) or "cp1251", errors="replace").rstrip()
             # ai-bridge 3 tags each line with the JSON-RPC id of its call: bind the line to that call exactly
             m = re.search(r"\[rpc ([^\]]+)\] ", text)
             call = None

@@ -23,6 +23,7 @@ $files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index
     "desktop/ui/vendor/addons/postprocessing/ShaderPass.js", "desktop/ui/vendor/addons/postprocessing/MaskPass.js",
     "desktop/ui/vendor/addons/postprocessing/Pass.js", "desktop/ui/vendor/addons/shaders/CopyShader.js",
     "desktop/ui/vendor/addons/shaders/LuminosityHighPassShader.js", "desktop/ui/vendor/addons/shaders/OutputShader.js",
+    "desktop/ui/vendor/addons/loaders/SVGLoader.js", "desktop/ui/vendor/lobe-icons/logos.js", "desktop/ui/vendor/lobe-icons/LICENSE",
     "desktop/ui/fonts/geologica-cyrillic-full-normal.woff2", "desktop/ui/fonts/geologica-latin-full-normal.woff2",
     "desktop/ui/fonts/martian-mono-cyrillic-standard-normal.woff2", "desktop/ui/fonts/martian-mono-latin-standard-normal.woff2",
     "desktop/ui/fonts/OFL-Geologica.txt", "desktop/ui/fonts/OFL-MartianMono.txt")

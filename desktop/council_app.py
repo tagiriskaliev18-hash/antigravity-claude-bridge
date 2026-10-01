@@ -37,7 +37,7 @@ import urllib.request
 import webbrowser
 
 APP_NAME = "council-engine"
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 PORT = int(os.environ.get("COUNCIL_PORT", "47615"))
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 TAP = os.path.join(APP_DIR, "council_tap.py")
@@ -212,7 +212,8 @@ try:
             pass
 except Exception as e:
     out["error"] = str(e)
-print(json.dumps(out, ensure_ascii=False))
+# ASCII only: on Windows a piped stdout uses the ANSI code page, which would garble Cyrillic text
+print(json.dumps(out, ensure_ascii=True))
 '''
 
 
@@ -442,7 +443,8 @@ def tier_rules(rules):
 
 # ---------------------------------------------------------------- processes
 
-PS_QUERY = ("Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine,"
+# UTF-8 output: the default OEM code page would garble Cyrillic folder names in command lines
+PS_QUERY = ("[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine,"
             "WorkingSetSize,KernelModeTime,UserModeTime,"
             "@{n='Start';e={if($_.CreationDate){[DateTimeOffset]::new($_.CreationDate).ToUnixTimeSeconds()}}}"
             " | ConvertTo-Json -Compress")
