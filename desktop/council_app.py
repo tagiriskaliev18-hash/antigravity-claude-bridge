@@ -1412,10 +1412,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(403, {"error": "local only"})
         u = urllib.parse.urlparse(self.path)
         q = urllib.parse.parse_qs(u.query)
-        if u.path in ("/", "/index.html", "/classic"):
-            # /classic is the 3D system map of v3; the HUD in index.html is the default view
-            page = "classic.html" if u.path == "/classic" else "index.html"
-            with open(os.path.join(APP_DIR, "ui", page), "rb") as fh:
+        if u.path in ("/", "/index.html"):
+            with open(os.path.join(APP_DIR, "ui", "index.html"), "rb") as fh:
                 return self.send(200, fh.read(), "text/html; charset=utf-8")
         if u.path.startswith(("/vendor/", "/fonts/")):
             # only files shipped with the app: three.js and the two typefaces

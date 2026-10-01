@@ -14,8 +14,8 @@ $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $repoRaw = "https://raw.githubusercontent.com/tagiriskaliev18-hash/antigravity-claude-bridge/$Branch"
 $appDir = Join-Path $env:LOCALAPPDATA "CouncilEngine"
-$files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index.html", "desktop/ui/classic.html", "desktop/council.ico",
-    # three.js for the 3D map and the fonts are shipped with the app, so it works offline
+$files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index.html", "desktop/council.ico",
+    # three.js for the 3D map and the two fonts are shipped with the app, so it works offline
     "desktop/ui/vendor/three.module.min.js", "desktop/ui/vendor/THREE-LICENSE",
     "desktop/ui/vendor/addons/controls/OrbitControls.js", "desktop/ui/vendor/addons/renderers/CSS2DRenderer.js",
     "desktop/ui/vendor/addons/postprocessing/EffectComposer.js", "desktop/ui/vendor/addons/postprocessing/RenderPass.js",
@@ -26,10 +26,7 @@ $files = @("desktop/council_app.py", "desktop/council_tap.py", "desktop/ui/index
     "desktop/ui/vendor/addons/loaders/SVGLoader.js", "desktop/ui/vendor/lobe-icons/logos.js", "desktop/ui/vendor/lobe-icons/LICENSE",
     "desktop/ui/fonts/geologica-cyrillic-full-normal.woff2", "desktop/ui/fonts/geologica-latin-full-normal.woff2",
     "desktop/ui/fonts/martian-mono-cyrillic-standard-normal.woff2", "desktop/ui/fonts/martian-mono-latin-standard-normal.woff2",
-    "desktop/ui/fonts/OFL-Geologica.txt", "desktop/ui/fonts/OFL-MartianMono.txt",
-    "desktop/ui/fonts/inter-cyrillic-wght-normal.woff2", "desktop/ui/fonts/inter-latin-wght-normal.woff2",
-    "desktop/ui/fonts/jetbrains-mono-cyrillic-wght-normal.woff2", "desktop/ui/fonts/jetbrains-mono-latin-wght-normal.woff2",
-    "desktop/ui/fonts/OFL-Inter.txt", "desktop/ui/fonts/OFL-JetBrainsMono.txt")
+    "desktop/ui/fonts/OFL-Geologica.txt", "desktop/ui/fonts/OFL-MartianMono.txt")
 
 Write-Host "=== Council Engine installer ===" -ForegroundColor Cyan
 
