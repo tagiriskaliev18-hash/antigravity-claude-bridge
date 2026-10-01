@@ -15,6 +15,35 @@
 
 ---
 
+## 🧠 Консилиум моделей (`multillm_council`)
+
+Инструмент MCP-сервера `multillm-bridge`, который заставляет все подключенные ключи работать одновременно:
+
+1. Задача параллельно уходит всем участникам (по умолчанию `deepseek-v4-pro, gpt-6-astra, qwen3.8-max, glm-5.3, claude-opus-5-5`), каждому со своей ролью: архитектор, безопасность, продукт, реализатор, критик.
+2. При `rounds: 2–3` участники видят ответы друг друга, критикуют и улучшают свои варианты.
+3. Судья (`claude-opus-5-5`) сводит всё в одно решение: план, где эксперты согласны, где расходятся и почему выбран вариант, риски.
+
+Упавший провайдер не ломает консилиум: модель пропускается, а в отчете указано, кто не ответил. Участник `claude-cli` подключает локальный Claude Code по подписке вместо API-ключа.
+
+Пример вызова из Antigravity или Claude Code:
+
+```json
+{"task": "Спроектируй мобильное приложение для учета привычек: стек, модули, план MVP",
+ "context": "Flutter + Supabase, один разработчик, запуск через месяц",
+ "rounds": 2}
+```
+
+Настройка через переменные окружения (в `env` блока `multillm-bridge` в `mcp_config.json`):
+
+| Переменная | Назначение |
+|---|---|
+| `XYVERO_API_KEY`, `OCTAVAPI_API_KEY`, `MULTILLM_API_KEY` | ключи существующих провайдеров |
+| `MULTILLM_EXTRA_PROVIDERS` | JSON-список дополнительных провайдеров `[{"name","base_url","api_key","supported_models","priority"}]` |
+| `MULTILLM_COUNCIL_MEMBERS` | участники через запятую |
+| `MULTILLM_COUNCIL_JUDGE` | модель-судья |
+
+---
+
 ## 📦 Структура репозитория
 
 ```
@@ -30,7 +59,8 @@ antigravity-claude-bridge/
 ├── scripts/
 │   └── install.ps1                        # Скрипт автоматической установки для Windows
 ├── tools/
-│   └── claude_bridge.py                   # Python MCP-сервер моста (claude_review, claude_ask, claude_implement)
+│   ├── claude_bridge.py                   # Python MCP-сервер моста (claude_review, claude_ask, claude_implement)
+│   └── multillm_bridge.py                 # Multi-LLM MCP-сервер (multillm_ask, multillm_review, multillm_council)
 └── README.md
 ```
 
