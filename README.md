@@ -33,6 +33,8 @@
  "rounds": 2}
 ```
 
+Чтобы любой диалог в Claude Code или Antigravity работал с консилиумом, вставьте в него промпт из [`config/COUNCIL_PROMPT.md`](config/COUNCIL_PROMPT.md).
+
 Настройка через переменные окружения (в `env` блока `multillm-bridge` в `mcp_config.json`):
 
 | Переменная | Назначение |
