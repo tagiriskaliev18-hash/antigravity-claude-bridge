@@ -20,11 +20,13 @@ Write-Host "=== Council Engine installer ===" -ForegroundColor Cyan
 
 Write-Host "[1/5] Checking Python..." -ForegroundColor Yellow
 $python = $null
-foreach ($cand in @("python", "py")) {
+# a python from a project venv can disappear with that project, so always resolve to its base interpreter
+$probe = "import os, sys; exe = os.path.join(sys.base_prefix, 'python.exe') if sys.prefix != sys.base_prefix else sys.executable; print(exe if sys.version_info >= (3, 8) else '')"
+foreach ($cand in @("py", "python")) {
     $cmd = Get-Command $cand -ErrorAction SilentlyContinue
     if (-not $cmd) { continue }
     try {
-        $exe = (& $cmd.Source -c "import sys; print(sys.executable if sys.version_info >= (3, 8) else '')" 2>$null | Select-Object -Last 1)
+        $exe = (& $cmd.Source -c $probe 2>$null | Select-Object -Last 1)
         if ($exe -and (Test-Path $exe)) { $python = $exe; break }
     } catch { }
 }
