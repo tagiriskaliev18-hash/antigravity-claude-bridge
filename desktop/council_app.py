@@ -37,7 +37,7 @@ import urllib.request
 import webbrowser
 
 APP_NAME = "council-engine"
-APP_VERSION = "3.2.0"
+APP_VERSION = "4.0.0"
 PORT = int(os.environ.get("COUNCIL_PORT", "47615"))
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 TAP = os.path.join(APP_DIR, "council_tap.py")
@@ -261,7 +261,7 @@ def mask(value, key=""):
 
 
 SYSTEM_CACHE = {}
-SYSTEM_JSON = ("providers.json", "agents.json", "token_usage.json", "models.json", "roles.json")
+SYSTEM_JSON = ("providers.json", "agents.json", "token_usage.json", "pool_health.json", "models.json", "roles.json")
 
 
 def cached_read(path, reader):
@@ -729,10 +729,29 @@ class Activity:
                 if step:
                     step.update(ok=False, why=why, done=ts)
             return
-        m = re.search(r"Consilium members: ([^;]+); chair: (\S+)", line)
+        m = re.search(r"Consilium members: ([^;]+); chair: ([^;\s]+)(?:; rounds: (\d))?", line)
         if m:
             cur["consilium"] = True
-            cur["council"] = {"members": [x.strip() for x in m.group(1).split(",") if x.strip()], "chair": m.group(2)}
+            cur["council"] = {"members": [x.strip() for x in m.group(1).split(",") if x.strip()], "chair": m.group(2),
+                              "rounds": int(m.group(3) or 1), "round": 1}
+            return
+        m = re.search(r"Consilium round (\d): (\d+) members", line)
+        if m:
+            cur.setdefault("council", {"members": [], "chair": None})
+            cur["council"].update(round=int(m.group(1)), **{f"round{m.group(1)}_ts": ts})
+            return
+        m = re.search(r"Skipping provider '([^']+)' \(agent '([^']+)'\): (.+)", line)
+        if m:
+            cur.setdefault("route", []).append({"ts": ts, "agent": m.group(2), "provider": m.group(1), "ok": False,
+                                                "skipped": True, "why": m.group(3), "done": ts})
+            return
+        m = re.search(r"Provider '([^']+)' paused until (\S+(?: \S+)?) \((.+)\)$", line)
+        if m:
+            cur.setdefault("paused", []).append({"provider": m.group(1), "until": m.group(2), "why": m.group(3)})
+            return
+        m = re.search(r"Auto route: '([^']+)' \((.+)\)$", line)
+        if m:
+            cur["agent"], cur["auto"] = m.group(1), m.group(2)
             return
         m = re.search(r"Consilium chair '([^']+)' is writing the verdict", line)
         if m:
@@ -1126,6 +1145,7 @@ def list_projects():
 # ---------------------------------------------------------------- chat: requests through the same MCP bridge
 
 CHAT_MODES = {
+    "auto": ("auto_run", "task"),
     "role": ("agent_run", "task"),
     "model": ("model_ask", "question"),
     "consilium": ("consilium", "task"),

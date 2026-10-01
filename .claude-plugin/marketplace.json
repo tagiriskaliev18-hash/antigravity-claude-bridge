@@ -1,0 +1,13 @@
+{
+  "name": "council-engine",
+  "owner": {"name": "Tagir Iskaliev"},
+  "metadata": {"description": "Плагины мультимодельной системы ai-bridge и Council Engine"},
+  "plugins": [
+    {
+      "name": "multimodel",
+      "source": "./plugins/multimodel",
+      "description": "Консилиум моделей, автовыбор роли и прямые вопросы моделям через ai-bridge 4",
+      "version": "4.0.0"
+    }
+  ]
+}

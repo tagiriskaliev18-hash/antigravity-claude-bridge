@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%2305090d%27/%3E%3Cellipse cx=%2716%27 cy=%2716%27 rx=%2712%27 ry=%275%27 fill=%27none%27 stroke=%27%23a7b3bd%27 stroke-width=%271.4%27 transform=%27rotate(-18 16 16)%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%274%27 fill=%27%23feb354%27/%3E%3C/svg%3E">
 <script type="importmap">{"imports": {"three": "/vendor/three.module.min.js", "three/addons/": "/vendor/addons/"}}</script>
 <style>
-/* Council Engine 3. An instrument for watching a multi-model system: a live 3D orbit map underneath,
+/* Council Engine 4. An instrument for watching a multi-model system: a live 3D orbit map underneath,
    quiet panels on top. One dark look, hairlines instead of boxes, one warm accent (amber) for anything
    that is happening right now, red only for failures, muted hues for model families.
    Every number on screen comes from this computer; reference text about model families is labelled. */
@@ -58,6 +58,8 @@ code{font:400 .86em var(--mono);font-stretch:87.5%;color:var(--fg)}
 .l3.hot b{color:var(--live)} .l3.sel b{color:#fff} .l3.dim{opacity:.18!important} .l3.hid{opacity:0!important}
 .l3.role i,.l3.pool i{display:none} .l3.role.near i,.l3.pool.near i,#labels.close .l3 i{display:block}
 .l3 .st{color:var(--live)}
+.l3 i.pz{display:block!important;color:var(--live)}
+.chip.paused{border-style:dashed;color:var(--fg2)}
 
 /* frame */
 .app{position:fixed;inset:0;display:grid;grid-template-columns:var(--side) minmax(0,1fr) 0;grid-template-rows:minmax(0,1fr) var(--tl);pointer-events:none}
@@ -239,6 +241,7 @@ button.step:hover{background:rgba(255,255,255,.03)}
 .rs b{font-weight:540} .rs .m{font:400 11px var(--mono);font-stretch:87.5%;color:var(--fg2)}
 .rs .s{font:400 10.5px var(--mono);font-stretch:87.5%;color:var(--fg3);white-space:nowrap}
 .rs.run .s{color:var(--live)} .rs.no .s{color:var(--bad)}
+.rs.skip{opacity:.75} .rs.skip .ic{background:transparent;border:1px dashed var(--fg3)}
 .council{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px;margin-top:9px}
 .member{border:1px solid var(--line);border-radius:3px;padding:7px 9px;display:flex;flex-direction:column;gap:2px;min-width:0}
 .member.run{border-color:rgba(254,179,84,.4)} .member.ok{border-color:rgba(145,222,188,.3)} .member.no{border-color:rgba(239,103,90,.4)}
@@ -469,12 +472,19 @@ function buildSystem(){
       privacy:"", desc:"", isDefault:false, cli:false, fam:famOf(model || p.name), alias:null, keyInline:false, keyEnv:p.has_key, keyName:"", keyState:p.has_key ? "set" : "missing", keySrc:p.has_key ? "в коде моста" : null, usedBy:[]});
   }));
   S.providers.forEach(p => S.prov[p.id] = p);
+  // pool_health.json: ai-bridge 4 pauses a pool after a limit or a run of failures; roles skip it until then
+  const HL = file("pool_health.json")?.data || {}, nowSec = Date.now()/1000;
+  for (const [id, h] of Object.entries(HL)) {
+    const p = S.prov[id]; if (!p || !h || typeof h !== "object") continue;
+    p.health = h;
+    if (num(h.until) > nowSec) p.pause = {until:num(h.until), why:h.reason || "пауза"};
+  }
   const aj = file("agents.json")?.data;
   if (aj) {
     S.defAgent = aj.default_agent || null;
     const cc = aj.consilium && typeof aj.consilium === "object" ? aj.consilium : null;
     const mem = cc ? (Array.isArray(cc.members) ? cc.members : String(cc.members || "").split(",")).map(x => String(x).trim()).filter(Boolean) : [];
-    S.council = cc ? {members:mem, chair:cc.chair || mem[0] || null, note:cc.note || "", parallel:true} : null;
+    S.council = cc ? {members:mem, chair:cc.chair || mem[0] || null, note:cc.note || "", parallel:true, rounds:num(cc.rounds) || 2} : null;
     for (const [id, a] of Object.entries(aj.agents || {})) {
       if (!a || typeof a !== "object") continue;
       const primary = a.primary_provider || a.provider || a.model || null;
@@ -491,6 +501,12 @@ function buildSystem(){
   S.agents.forEach(a => a.skills.forEach(k => { if (!S.skill[k]) { S.skill[k] = {name:k, missing:true}; S.skills.push(S.skill[k]); } }));
   S.ledgerFile = file("token_usage.json") || null;
   S.ledger = S.ledgerFile?.data || null;
+  for (const [acc, a] of Object.entries(S.ledger?.accounts || {})) {
+    const init = num(a?.initial_units), rem = num(a?.remaining_units);
+    if (init == null || rem == null) continue;
+    S.providers.filter(p => p.account === acc).forEach(p => { p.budget = {init, rem, title:a.title || acc,
+      state:rem <= 0 ? "empty" : rem < init*0.1 ? "low" : "ok"}; });
+  }
   for (const [key, r] of Object.entries(S.ledger?.by_provider || {})) {
     if (!r || typeof r !== "object") continue;
     const p = S.prov[key] || null;
@@ -519,6 +535,11 @@ const famList = () => FAM_ORDER.filter(k => SYS.fam[k].shown);
 const famOff = f => !f.pools.length || !f.live;
 const famSub = (f, tail) => !f.pools.length ? "не подключена" : !f.live ? "нет ключа" : f.pools.length+" "+plural(f.pools.length,"пул","пула","пулов")+(tail ? tail(f) : "");
 const keyTag = p => p.keyState === "missing" ? `<span class="tag bad">нет ключа${p.keyName ? ": "+esc(p.keyName) : ""}</span>` : p.keyState === "set" ? `<span class="tag ok">ключ есть</span>` : p.keyState === "inline" ? `<span class="tag live">ключ в файле</span>` : "";
+const hm = sec => { const d = new Date(sec*1000), t = new Date(); const s = d.toTimeString().slice(0, 5);
+  return d.toDateString() === t.toDateString() ? s : d.toLocaleDateString("ru-RU", {day:"2-digit", month:"2-digit"}) + " " + s; };
+const pauseText = p => p.pause ? `пауза до ${hm(p.pause.until)}: ${p.pause.why}` : p.budget?.state === "empty" ? "баланс счёта исчерпан" : "";
+const stateTag = p => p.pause ? `<span class="tag live" title="Роли пропускают этот пул до конца паузы; снять: python C:\\projects\\tools\\claude_bridge.py --resume">${esc(pauseText(p))}</span>`
+  : p.budget?.state === "empty" ? `<span class="tag bad">баланс исчерпан</span>` : p.budget?.state === "low" ? `<span class="tag live">осталось ${fmtN(p.budget.rem)} из ${fmtN(p.budget.init)}</span>` : "";
 const keyText = p => ({cli:"не нужен: локальный Claude Code CLI", none:"не нужен", inline:"записан прямо в providers.json",
   set:"есть" + (p.keyName ? " ("+p.keyName+(p.keySrc ? ", "+p.keySrc : "")+")" : p.keySrc ? " ("+p.keySrc+")" : ""),
   missing:"нет: переменная "+(p.keyName || "?")+" не задана. Ввести: python C:\\projects\\tools\\claude_bridge.py --keys"})[p.keyState] || "—";
@@ -587,6 +608,7 @@ function renderBanners(){
 
 // ---------- who answers right now: steps of a call's route, the council
 function stepState(r, c, isLast){
+  if (r.skipped) return "skip";
   if (r.ok === true) return "ok";
   if (r.ok === false) return "no";
   if (isRun(c)) return "run";
@@ -603,15 +625,17 @@ function routeHtml(c, compact){
   return `<div class="route">${show.map(r => {
     const i = steps.indexOf(r), st = stepState(r, c, i === steps.length - 1), p = SYS.prov[r.provider], k = p ? p.fam : famOf(r.model || r.provider);
     const model = r.model || p?.model || r.provider;
-    const s = st === "run" ? `<span class="s" data-since="${r.ts}">отвечает · ${fmtSec(nowS() - r.ts)}</span>` : st === "ok" ? `<span class="s">${r.s != null ? "ответил за "+String(r.s).replace(".", ",")+" с" : "ответил"}</span>` : `<span class="s">не ответил${r.why ? ": "+esc(r.why) : ""}</span>`;
+    const s = st === "run" ? `<span class="s" data-since="${r.ts}">отвечает · ${fmtSec(nowS() - r.ts)}</span>` : st === "ok" ? `<span class="s">${r.s != null ? "ответил за "+String(r.s).replace(".", ",")+" с" : "ответил"}</span>` : st === "skip" ? `<span class="s">пропущен: ${esc(r.why || "")}</span>` : `<span class="s">не ответил${r.why ? ": "+esc(r.why) : ""}</span>`;
     return `<div class="rs ${st}"><span class="ic"></span><span>${sw(k)} <b>${esc(FAM[k].n)}</b> <span class="m">${esc(model)} · пул ${esc(r.provider)}${r.agent && !c.consilium ? " · роль "+esc(roleName(r.agent)) : ""}</span></span>${s}</div>`;
   }).join("")}</div>`;
 }
 function memberState(c, id){
-  const steps = (c.route || []).filter(r => r.agent === id), last = steps[steps.length - 1];
+  // in round 2 a member is called again: its state is that of the current round
+  const C = c.council || {}, all = (c.route || []).filter(r => r.agent === id), r2 = C.round === 2 && C.round2_ts && id !== C.chair;
+  const cur = r2 ? all.filter(r => r.ts >= C.round2_ts) : all, steps = cur.length ? cur : all, last = steps[steps.length - 1];
   if (c.failed_agents?.[id]) return {st:"no", steps, last, text:"не ответил"};
-  if (last?.ok === true) return {st:"ok", steps, last, text:"ответил" + (last.s != null ? " за "+String(last.s).replace(".", ",")+" с" : "")};
-  if (last && last.ok == null && isRun(c)) return {st:"run", steps, last, text:"думает"};
+  if (last?.ok === true) return {st:"ok", steps, last, text:(r2 && cur.length ? "уточнил ответ" : "ответил") + (last.s != null ? " за "+String(last.s).replace(".", ",")+" с" : "")};
+  if (last && last.ok == null && isRun(c)) return {st:"run", steps, last, text:r2 && cur.length ? "критикует других" : "думает"};
   if (!last) return {st:isRun(c) ? "wait" : "no", steps, last, text:isRun(c) ? "ждёт" : "не запускался"};
   if (last.ok === false && isRun(c)) return {st:"run", steps, last, text:"переходит к запасному"};
   return {st:c.error ? "no" : "ok", steps, last, text:c.error ? "не ответил" : "ответил"};
@@ -622,7 +646,8 @@ function councilHtml(c){
     let m = memberState(c, id);
     if (isChair && m.st === "wait") m = {...m, text:C.verdict_ts ? "пишет итог" : "ждёт ответов участников"};
     const pool = m.last ? m.last.provider : SYS.agent[id]?.primary, k = SYS.prov[pool]?.fam || famOf(pool);
-    const fails = m.steps.filter(r => r.ok === false).map(r => r.provider + (r.why ? " ("+r.why+")" : ""));
+    const seen = new Map(); m.steps.filter(r => r.ok === false).forEach(r => seen.set(r.provider, r.why));
+    const fails = [...seen].map(([p, why]) => p + (why ? " ("+why+")" : ""));
     return `<div class="member ${m.st === "wait" ? "" : m.st}${isChair ? " chair" : ""}"><div class="h">${sw(k)}${esc(roleName(id))}${isChair ? ` <span class="faint" style="font-weight:400">председатель</span>` : ""}<span class="s">${esc(m.text)}</span></div>
       <div class="m">${esc(poolLabel(pool))}${pool ? " · пул "+esc(pool) : ""}</div>${fails.length ? `<div class="m" style="color:var(--fg3)">сначала: ${esc(fails.join(", "))}</div>` : ""}</div>`;
   };
@@ -645,7 +670,8 @@ function noticeSum(c){
     const st = members.map(id => memberState(c, id).st), n = k => st.filter(x => x === k).length;
     const parts = [n("ok") && "ответили " + n("ok"), n("run") && "думают " + n("run"), n("wait") && "ждут " + n("wait"), n("no") && "не ответили " + n("no")].filter(Boolean);
     const verdict = !isRun(c) ? "итог: " : C.verdict_ts ? "итог пишет " : "итог напишет ";
-    return `участников ${members.length}: ${parts.join(", ")}${chair ? " · " + verdict + roleName(chair) : ""}`;
+    const rnd = isRun(c) && !C.verdict_ts && (C.rounds || 1) > 1 ? (C.round === 2 ? " · раунд 2 из 2: взаимная критика" : " · раунд 1 из 2: независимые ответы") : "";
+    return `участников ${members.length}: ${parts.join(", ")}${rnd}${chair ? " · " + verdict + roleName(chair) : ""}`;
   }
   const steps = c.route || [], last = steps[steps.length - 1];
   if (!last) return isRun(c) ? "мост принял вызов, модель ещё не выбрана" : "";
@@ -777,7 +803,7 @@ function viewRoles(){
         <h4>${sw(a.fam)}${esc(a.name)}${a.isDefault ? ` <span class="tag hi">по умолчанию</span>` : ""}${run ? ` <span class="tag live">работает</span>` : ""}${isInCouncil(a.id) && consilium ? ` <span class="tag">${SYS.council.chair === a.id ? "председатель" : "консилиум"}</span>` : ""}</h4>
         <div class="id">${esc(a.id)} · ${a.write ? `<span style="color:var(--live)">может менять файлы</span>` : "только чтение"} · ${n} ${plural(n,"вызов","вызова","вызовов")} в журнале</div>
         <p>${esc(a.desc || "Описания в agents.json нет.")}</p>
-        <div class="chain">${a.chain.map((id, i) => { const p = SYS.prov[id], k = p ? p.fam : famOf(id); return `<span class="chip" title="${esc(p ? p.model : "пула нет в providers.json")}">${sw(k, p && p.keyState === "missing")}<span class="i">${i+1}</span>${esc(id)}</span>`; }).join('<span class="arrow">›</span>')}</div>
+        <div class="chain">${a.chain.map((id, i) => { const p = SYS.prov[id], k = p ? p.fam : famOf(id); return `<span class="chip${p && (p.pause || p.budget?.state === "empty") ? " paused" : ""}" title="${esc(p ? p.model + (pauseText(p) ? " · " + pauseText(p) : "") : "пула нет в providers.json")}">${sw(k, p && p.keyState === "missing")}<span class="i">${i+1}</span>${esc(id)}</span>`; }).join('<span class="arrow">›</span>')}</div>
         ${a.skills.length ? `<div class="chain">${a.skills.map(k => `<span class="chip"><span class="i">навык</span>${esc(k)}</span>`).join("")}</div>` : ""}
       </div>`; }).join("")}</div>
     <p class="note" style="margin-top:14px">Цепочка читается слева направо: первым идёт основной пул, дальше запасные. Пул, у которого логотип нарисован только контуром, сейчас без ключа: мост его пропустит. Если пул ответил ошибкой или лимитом, мост берёт следующий, и это видно на карте и в журнале.</p>
@@ -846,8 +872,8 @@ function viewAg(){
 }
 
 // ---------- chat
-const MODES = [["role","Роль"],["model","Модель"],["consilium","Консилиум"],["claude","Claude Code"]];
-const CH = Object.assign({mode:"role", agent:"", provider:"", folder:"", follow:true}, store.get("chat", {}));
+const MODES = [["auto","Авто"],["role","Роль"],["model","Модель"],["consilium","Консилиум"],["claude","Claude Code"]];
+const CH = Object.assign({mode:"auto", agent:"", provider:"", folder:"", follow:true}, store.get("chat", {}));
 let chatBuilt = false, lastLog = "";
 function md(src){
   const lines = String(src || "").replace(/\r/g, "").split("\n"), out = []; let i = 0;
@@ -908,7 +934,7 @@ function renderChat(controls){
       opts = SYS.agents.map(a => `<option value="${esc(a.id)}">${esc(a.name)} · ${esc(SYS.prov[a.primary] ? FAM[SYS.prov[a.primary].fam].n : a.primary)}</option>`).join(""); }
     else if (CH.mode === "model") { if (!SYS.prov[CH.provider]) CH.provider = SYS.defProv || SYS.providers[0]?.id || "";
       opts = SYS.providers.map(p => `<option value="${esc(p.id)}">${esc(FAM[p.fam].n)} · ${esc(p.model)}${p.keyState === "missing" ? " · нет ключа" : ""}</option>`).join(""); }
-    t.hidden = CH.mode === "consilium" || CH.mode === "claude";
+    t.hidden = CH.mode === "consilium" || CH.mode === "claude" || CH.mode === "auto";
     if (t.dataset.opts !== CH.mode + opts) { t.innerHTML = opts; t.dataset.opts = CH.mode + opts; }
     t.value = CH.mode === "model" ? CH.provider : CH.agent;
     const f = $("#cFolder"), list = PROJ?.projects || [];
@@ -925,7 +951,8 @@ function renderChatHint(){
   let h = "";
   if (CH.mode === "role") { const a = SYS.agent[CH.agent]; if (a) h = `${a.name}: ${a.chain.map(id => id + (SYS.prov[id]?.keyState === "missing" ? " (нет ключа)" : "")).join(" › ")}`; }
   else if (CH.mode === "model") { const p = SYS.prov[CH.provider]; if (p) h = `${FAM[p.fam].n} · ${p.model} · ${p.cli ? "Claude CLI" : p.host} · ${p.keyState === "missing" ? "нет ключа " + p.keyName : "ключ есть"}`; }
-  else if (CH.mode === "consilium") { const C = SYS.council; h = C ? `${C.members.length} участников одновременно, итог: ${roleName(C.chair)}. Тратит токены каждого участника.` : "состав консилиума не задан"; }
+  else if (CH.mode === "consilium") { const C = SYS.council; h = C ? `${C.members.length} участников${(C.rounds || 1) > 1 ? ", 2 раунда: ответы, затем взаимная критика" : " одновременно"}, итог: ${roleName(C.chair)}. Тратит токены каждого участника${(C.rounds || 1) > 1 ? " дважды" : ""}.` : "состав консилиума не задан"; }
+  else if (CH.mode === "auto") h = "Мост сам выберет роль по словам в задаче: безопасность, ревью, архитектура, алгоритмы, код, исследование. Короткие задачи уходят на быструю дешёвую модель. Под ответом будет написано, кто выбран и почему.";
   else h = cliOk() ? "Claude Code CLI сам читает файлы выбранного проекта, ничего не меняет." : "Claude CLI не найден: мост отправит вопрос в запасной пул без доступа к файлам.";
   if (CH.folder && CH.mode !== "claude") h += " · модели получат карту проекта и README";
   $("#cHint").textContent = h;
@@ -943,17 +970,20 @@ async function sendChat(){
   } catch (e) { flash(btn, "ошибка: " + e.message); }
   setTimeout(() => { btn.disabled = CH.mode === "claude" && !CH.folder; }, 300);
 }
-const MODE_RU = {role:"роль", model:"модель", consilium:"консилиум", claude:"Claude Code"};
-function jobTarget(j){ return j.mode === "role" ? roleName(j.agent) : j.mode === "model" ? poolLabel(j.provider) : j.mode === "consilium" ? "консилиум" : "Claude Code"; }
+const MODE_RU = {auto:"авто", role:"роль", model:"модель", consilium:"консилиум", claude:"Claude Code"};
+function jobTarget(j){ return j.mode === "auto" ? "автовыбор роли" : j.mode === "role" ? roleName(j.agent) : j.mode === "model" ? poolLabel(j.provider) : j.mode === "consilium" ? "консилиум" : "Claude Code"; }
 function chatFoot(c, j){
   const steps = c.route || [], fails = steps.filter(r => r.ok === false), okStep = steps.filter(r => r.ok === true).pop();
   if (c.consilium) {
     const C = c.council || {}, chair = C.chair || SYS.council?.chair, cs = steps.filter(r => r.agent === chair && r.ok === true).pop();
-    return `участников ${(C.members || SYS.council?.members || []).length}, итог: ${roleName(chair)}${cs ? " на " + poolLabel(cs.provider) : ""}${fails.length ? " · переходов на запасной пул: " + fails.length : ""}`;
+    const moved = fails.filter(r => !r.skipped).length, skipped = new Set(fails.filter(r => r.skipped).map(r => r.provider));
+    return `участников ${(C.members || SYS.council?.members || []).length}${(C.rounds || 1) > 1 ? ", 2 раунда" : ""}, итог: ${roleName(chair)}${cs ? " на " + poolLabel(cs.provider) : ""}${moved ? " · переходов на запасной пул: " + moved : ""}${skipped.size ? " · пропущены на паузе: " + [...skipped].join(", ") : ""}`;
   }
   if (j.status === "error" || c.error) return steps.length ? "не ответили: " + [...new Set((fails.length ? fails : steps.slice(-1)).map(r => r.provider))].join(", ") : "мост вернул ошибку";
   if (!okStep) return "подробности вызова";
-  return `ответила ${poolLabel(okStep.provider)} · пул ${okStep.provider}${fails.length ? " · до неё не ответили: " + [...new Set(fails.map(r => r.provider))].join(", ") : ""}`;
+  const failed = [...new Set(fails.filter(r => !r.skipped).map(r => r.provider))], skipped = [...new Set(fails.filter(r => r.skipped).map(r => r.provider))];
+  return (c.auto ? `автовыбор: ${roleName(c.agent)} (${c.auto.split(";")[0]}) · ` : "") + `ответила ${poolLabel(okStep.provider)} · пул ${okStep.provider}`
+    + (failed.length ? " · до неё не ответили: " + failed.join(", ") : "") + (skipped.length ? " · пропущены (пауза или баланс): " + skipped.join(", ") : "");
 }
 function renderChatLog(toBottom){
   const box = $("#chatLog"); if (!box) return;
@@ -1002,7 +1032,7 @@ function provCard(p){
     <div class="id">${esc(p.model || "модель не указана")} · ${esc(p.cli ? "локальный CLI: "+(p.command || "") : p.host || "адрес не указан")}</div>
     ${p.desc ? `<p>${esc(p.desc)}</p>` : ""}
     <div class="row">${p.tier ? `<span class="tag ${/free/i.test(p.tier) ? "ok" : /paid|active/i.test(p.tier) ? "pk" : ""}">${esc(p.tier)}</span>` : ""}${p.privacy ? `<span class="tag">${esc(p.privacy)}</span>` : ""}
-      ${p.cli ? `<span class="tag ${cliOk() ? "ok" : "bad"}">${cliOk() ? "CLI найден" : "CLI не установлен"}</span>` : keyTag(p)}
+      ${p.cli ? `<span class="tag ${cliOk() ? "ok" : "bad"}">${cliOk() ? "CLI найден" : "CLI не установлен"}</span>` : keyTag(p)}${stateTag(p)}
       ${r ? `<span class="tag hi">${fmtTok(r.total)} ток. · ${fmtN(r.requests)} запр.</span>` : `<span class="tag">токенов не записано</span>`}</div>
     <div class="faint" style="font-size:12px">${users.length ? users.join(" · ") : "ни одна роль не использует"}</div>
   </div>`;
@@ -1398,7 +1428,7 @@ function sceneModel(){
   const t = nowS(), live = [], events = [], toolState = {}, cs = calls();
   cs.forEach(c => {
     if (isRun(c)) toolState[c.tool] = "run"; else if (c.end && t - c.end < 5 && !toolState[c.tool]) toolState[c.tool] = c.error ? "fail" : "flash";
-    (c.route || []).forEach((r, i) => { if (r.done && t - r.done < 8) events.push({key:c.id + ":" + i + ":" + r.ok, pool:r.provider, role:r.agent, kind:r.ok ? "ok" : "fail"}); });
+    (c.route || []).forEach((r, i) => { if (r.done && !r.skipped && t - r.done < 8) events.push({key:c.id + ":" + i + ":" + r.ok, pool:r.provider, role:r.agent, kind:r.ok ? "ok" : "fail"}); });
     if (c.end && t - c.end < 8) events.push({key:"end:" + c.id, kind:c.error || c.orphan ? "fail" : "end", client:c.client});
     if (!isRun(c)) return;
     const legs = [];
@@ -1424,7 +1454,8 @@ function sceneModel(){
     roles:SYS.agents.map(a => ({id:a.id, name:a.name, color:FAM[a.fam].c, calls:agentCalls(a.id).length, chain:a.chain, dflt:a.isDefault,
       council:!!SYS.council?.members.includes(a.id), chair:SYS.council?.chair === a.id})),
     pools:SYS.providers.slice().sort((a, b) => famOrder.indexOf(a.fam) - famOrder.indexOf(b.fam) || a.id.localeCompare(b.id))
-      .map(p => ({id:p.id, model:p.model, fam:p.fam, color:FAM[p.fam].c, key:p.keyState !== "missing" && !(p.cli && !cliOk()), tokens:provTok(p.id)?.total || 0})),
+      .map(p => ({id:p.id, model:p.model, fam:p.fam, color:FAM[p.fam].c, key:p.keyState !== "missing" && !(p.cli && !cliOk()), tokens:provTok(p.id)?.total || 0,
+        pause:p.pause ? "пауза до " + hm(p.pause.until) : p.budget?.state === "empty" ? "баланс исчерпан" : ""})),
     fams:famOrder.map(k => ({key:k, name:FAM[k].n, color:FAM[k].c, sub:famSub(SYS.fam[k], f => f.tokens ? " · " + fmtTok(f.tokens) : "")})),
     live, events};
 }
@@ -1758,7 +1789,8 @@ window.SCENE = {
     M = m;
     setLabel(coreLabel, m.core.name, m.core.tools.length + " инструментов");
     m.roles.forEach(r => { const n = NODES.get("role:" + r.id); if (n) { n.calls = r.calls; n.obj.scale.setScalar(0.9 + Math.min(1.2, Math.log10(1 + r.calls)*0.45)); } });
-    m.pools.forEach(p => { const n = NODES.get("pool:" + p.id); if (n) n.obj.scale.setScalar(0.85 + Math.min(1.15, Math.log10(1 + p.tokens)*0.17)); });
+    m.pools.forEach(p => { const n = NODES.get("pool:" + p.id); if (!n) return; n.obj.scale.setScalar(0.85 + Math.min(1.15, Math.log10(1 + p.tokens)*0.17));
+      setLabel(n.label, p.id, p.pause || p.model); n.label.userData.el.lastChild.className = p.pause ? "pz" : ""; });
     m.fams.forEach(f => { const n = NODES.get("fam:" + f.key); if (n) setLabel(n.label, f.name, f.sub); });
     m.clients.forEach(c => { const n = NODES.get("client:" + c.key); if (!n) return; n.alive = c.alive; n.active = c.active;
       setLabel(n.label, c.name, c.active ? "работает" : c.alive ? "запущен" : "не запущен"); n.label.userData.el.lastChild.className = c.active ? "st" : ""; });

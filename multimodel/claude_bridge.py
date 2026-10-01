@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-"""ai-bridge 3: MCP server between Antigravity and the multi-model pool.
+"""ai-bridge 4: MCP server between Antigravity and the multi-model pool.
 
 It gives Antigravity Claude Code CLI (claude_review, claude_ask, claude_implement), roles from
 agents.json with their own model chains (agent_run), a council of several models that answer in
-parallel and a chair that writes the verdict (consilium), and a token ledger (token_usage.json)
-filled from the usage that every answer reports.
+parallel, then review each other's answers, and a chair that writes the verdict (consilium), automatic
+choice of a role for a task (auto_run), and a token ledger (token_usage.json) filled from the usage
+that every answer reports. Pools that hit a limit or keep failing rest for a while (pool_health.json)
+and pools whose account balance is spent are skipped, so roles go straight to their fallbacks.
 
   python claude_bridge.py              MCP server on stdin/stdout (Antigravity starts it)
   python claude_bridge.py --keys       type API keys into .env next to providers.json (input hidden)
   python claude_bridge.py --import-keys   copy keys that older bridges on this PC keep in their code into .env
   python claude_bridge.py --check      one short real request to every pool that has a key
-  python claude_bridge.py --status     pools, keys (names only), roles and token totals
+  python claude_bridge.py --status     pools, keys (names only), pauses, roles and token totals
+  python claude_bridge.py --resume [pool]   lift the pause of one pool (or of all pools)
+  python claude_bridge.py --retire-old  take the old multillm-bridge (keys in its code) out of Antigravity and Claude Code
   python claude_bridge.py --selftest   offline check of providers.json, agents.json and skills
 
 Keys never go into providers.json: each pool names the variable that holds its key (api_key_env),
@@ -33,7 +37,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "3.0.0"
+VERSION = "4.0.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
 IS_WIN = sys.platform == "win32"
@@ -355,9 +359,10 @@ def ssl_context():
 
 
 class Reply:
-    def __init__(self, provider, ok, text="", kind=None, model=None, usage=None, ms=None):
+    def __init__(self, provider, ok, text="", kind=None, model=None, usage=None, ms=None, http=None, retry_after=None):
         self.provider, self.ok, self.text, self.kind = provider, ok, text, kind
         self.model, self.usage, self.ms = model, usage, ms
+        self.http, self.retry_after = http, retry_after
 
     def short_why(self):
         return {"PROVIDER_NO_KEY": "нет ключа", "PROVIDER_LIMIT_REACHED": "лимит", "CLAUDE_LIMIT_REACHED": "лимит",
@@ -405,7 +410,36 @@ def http_json(url, payload=None, key=None, timeout=60):
         return json.loads(resp.read().decode("utf-8", errors="replace"))
 
 
+RETRY_KINDS = ("PROVIDER_TIMEOUT", "PROVIDER_OFFLINE")
+
+
+def retry_hint(text, header=None):
+    """Seconds until a limit resets, from a Retry-After header or from the error text ("try again in 20s",
+    "resets in 1h2m"). None when the answer does not say."""
+    try:
+        if header is not None and str(header).strip():
+            return max(1, int(float(str(header).strip())))
+    except ValueError:
+        pass
+    m = re.search(r"(?:try again in|retry after|resets? in|reset in)\s*(?:(\d+)\s*h)?\s*(?:(\d+)\s*m(?:in)?)?\s*(?:(\d+(?:\.\d+)?)\s*s)?",
+                  text or "", re.I)
+    if m and any(m.groups()):
+        h, mi, sec = (float(g) if g else 0 for g in m.groups())
+        return max(1, int(h * 3600 + mi * 60 + sec))
+    return None
+
+
 def call_openai(pid, p, messages, max_tokens=None, timeout=None):
+    """One request with one quiet retry after a short outage (timeout, connection error, HTTP 5xx)."""
+    r = call_openai_once(pid, p, messages, max_tokens, timeout)
+    if not r.ok and (r.kind in RETRY_KINDS or (r.http or 0) >= 500):
+        log(f"Provider '{pid}' {r.short_why()}, retrying once in 2s...")
+        time.sleep(2)
+        r = call_openai_once(pid, p, messages, max_tokens, timeout)
+    return r
+
+
+def call_openai_once(pid, p, messages, max_tokens=None, timeout=None):
     model = prov_model(p)
     key = prov_key(p)
     if p.get("api_key_env") and not key:
@@ -425,9 +459,12 @@ def call_openai(pid, p, messages, max_tokens=None, timeout=None):
             body = e.read().decode("utf-8", errors="replace")[:600]
         except Exception:
             pass
+        hint = retry_hint(body, (e.headers or {}).get("Retry-After") if e.headers else None)
         if e.code == 429 or any(s in body.lower() for s in LIMIT_SIGNALS):
-            return Reply(pid, False, f"PROVIDER_LIMIT_REACHED (HTTP {e.code}): {body}".strip(), "PROVIDER_LIMIT_REACHED", model, ms=ms())
-        return Reply(pid, False, f"PROVIDER_ERROR (HTTP {e.code}): {e.reason}. {body}".strip(), "PROVIDER_ERROR", model, ms=ms())
+            return Reply(pid, False, f"PROVIDER_LIMIT_REACHED (HTTP {e.code}): {body}".strip(), "PROVIDER_LIMIT_REACHED", model,
+                         ms=ms(), http=e.code, retry_after=hint)
+        return Reply(pid, False, f"PROVIDER_ERROR (HTTP {e.code}): {e.reason}. {body}".strip(), "PROVIDER_ERROR", model,
+                     ms=ms(), http=e.code)
     except urllib.error.URLError as e:
         if isinstance(e.reason, (socket.timeout, TimeoutError)):
             return Reply(pid, False, f"PROVIDER_TIMEOUT: {host_of(url)} не ответил вовремя", "PROVIDER_TIMEOUT", model, ms=ms())
@@ -446,7 +483,7 @@ def call_openai(pid, p, messages, max_tokens=None, timeout=None):
         msg = err.get("message") if isinstance(err, dict) else err
         text = f"PROVIDER_ERROR: в ответе нет choices{': ' + str(msg)[:400] if msg else ''}"
         kind = "PROVIDER_LIMIT_REACHED" if msg and any(s in str(msg).lower() for s in LIMIT_SIGNALS) else "PROVIDER_ERROR"
-        return Reply(pid, False, text.replace("PROVIDER_ERROR", kind, 1), kind, model, ms=ms())
+        return Reply(pid, False, text.replace("PROVIDER_ERROR", kind, 1), kind, model, ms=ms(), retry_after=retry_hint(str(msg or "")))
     msg = choices[0].get("message") or {}
     content = msg.get("content") or ""
     if isinstance(content, list):
@@ -623,7 +660,8 @@ def run_claude(work_folder, prompt, tools_arg=None, allow_writes=False, model=No
         for sig in LIMIT_SIGNALS:
             if sig in combined:
                 log(f"Limit signal detected: {sig}")
-                return Reply(pid, False, f"CLAUDE_LIMIT_REACHED: {text or err}", "CLAUDE_LIMIT_REACHED", used_model, ms=ms)
+                return Reply(pid, False, f"CLAUDE_LIMIT_REACHED: {text or err}", "CLAUDE_LIMIT_REACHED", used_model, ms=ms,
+                             retry_after=retry_hint(text + " " + err))
         return Reply(pid, False, f"CLAUDE_ERROR (код {res.returncode}): {text or err or 'без вывода'}", "CLAUDE_ERROR", used_model, ms=ms)
     return Reply(pid, True, text or "Выполнено, текстового ответа нет.", None, used_model, usage, ms)
 
@@ -739,19 +777,128 @@ def read_ledger():
     return led
 
 
+# ---------------------------------------------------------------- pool health and budgets
+
+HEALTH_LOCK = threading.Lock()
+LIMIT_KINDS = ("PROVIDER_LIMIT_REACHED", "CLAUDE_LIMIT_REACHED")
+NOT_CALLS = ("PROVIDER_NO_KEY", "CLI_MISSING", "BAD_FOLDER")
+PAUSE_LIMIT = int(os.environ.get("AI_BRIDGE_PAUSE_LIMIT", "600"))   # a limit without a reset time: 10 min
+PAUSE_FAILS = int(os.environ.get("AI_BRIDGE_PAUSE_FAILS", "300"))   # several failures in a row: 5 min
+PAUSE_KEY = 1800                                                     # key rejected (HTTP 401/403): 30 min
+PAUSE_MAX = 6 * 3600
+FAILS_TO_PAUSE = 3
+FAIL_WINDOW = 900  # failures further apart than this do not add up
+LOW_BUDGET = 0.1   # warn when less than 10 % of an account balance is left
+
+
+def health_path():
+    return os.path.join(home_dir(), "pool_health.json")
+
+
+def read_health():
+    h = read_json(health_path())
+    return h if isinstance(h, dict) else {}
+
+
+def hhmm(ts):
+    t = time.localtime(ts)
+    return time.strftime("%H:%M" if time.strftime("%Y%m%d", t) == time.strftime("%Y%m%d") else "%d.%m %H:%M", t)
+
+
+def pause_of(pid, h):
+    """(until, reason) while a pool rests, else None."""
+    row = h.get(pid) or {}
+    until = row.get("until") or 0
+    return (until, row.get("reason") or "пауза") if until > time.time() else None
+
+
+def note_health(r):
+    """Remember how a pool answered: a success clears its pause, a limit or a run of failures starts one."""
+    if r.kind in NOT_CALLS or not r.provider:
+        return
+    path = health_path()
+    try:
+        with HEALTH_LOCK, FileLock(path + ".lock"):
+            h = read_health()
+            row = h.setdefault(r.provider, {})
+            now = time.time()
+            if r.ok:
+                was = pause_of(r.provider, h)
+                row.update(fails=0, until=0, reason=None, last_ok=now, last_ms=r.ms)
+                if was:
+                    log(f"Provider '{r.provider}' answered again, pause lifted")
+            else:
+                if now - (row.get("last_fail") or 0) > FAIL_WINDOW:
+                    row["fails"] = 0
+                row["fails"] = row.get("fails", 0) + 1
+                row.update(last_fail=now, last_kind=r.kind, last_error=(r.text or "")[:200])
+                pause, reason = None, None
+                if r.kind in LIMIT_KINDS:
+                    pause = r.retry_after or PAUSE_LIMIT
+                    reason = "лимит" + ("" if r.retry_after else ", время сброса не сообщено")
+                elif r.http in (401, 403):
+                    pause, reason = PAUSE_KEY, f"ключ не принят (HTTP {r.http})"
+                elif row["fails"] >= FAILS_TO_PAUSE:
+                    pause, reason = PAUSE_FAILS, f"{row['fails']} сбоя подряд"
+                if pause:
+                    row["until"] = now + min(pause, PAUSE_MAX)
+                    row["reason"] = reason
+                    log(f"Provider '{r.provider}' paused until {hhmm(row['until'])} ({reason})")
+            write_json_atomic(path, h)
+    except Exception as e:
+        log(f"pool health not saved: {e}")
+
+
+def resume_pools(pid=None):
+    path = health_path()
+    with HEALTH_LOCK, FileLock(path + ".lock"):
+        h = read_health()
+        names = [pid] if pid else list(h)
+        done = []
+        for n in names:
+            if pause_of(n, h):
+                h[n].update(until=0, reason=None, fails=0)
+                done.append(n)
+        write_json_atomic(path, h)
+    return done
+
+
+def budget_of(pid, p, accounts):
+    """("empty" | "low", text) for a pool whose account has a known balance that is spent or nearly spent."""
+    a = accounts.get(p.get("account")) if p else None
+    if not a or a.get("initial_units") in (None, 0) or a.get("remaining_units") is None:
+        return None
+    left, init = a["remaining_units"], a["initial_units"]
+    if left <= 0:
+        return "empty", f"баланс счёта {a.get('title') or p.get('account')} исчерпан (0 из {init})"
+    if left < init * LOW_BUDGET:
+        return "low", f"на счёте {a.get('title') or p.get('account')} осталось {left} из {init}"
+    return None
+
+
+def pool_gate(pid, p, h, accounts):
+    """Why a chain should skip this pool right now, or None."""
+    pz = pause_of(pid, h)
+    if pz:
+        return "pause", f"на паузе до {hhmm(pz[0])}: {pz[1]}"
+    b = budget_of(pid, p, accounts)
+    if b and b[0] == "empty":
+        return "budget", b[1]
+    return None
+
+
 # ---------------------------------------------------------------- roles and chains
 
 def run_chain(chain, system_prompt, task, agent=None, tool=None, work_folder=None, allowed_tools="Read,Grep,Glob",
               context=""):
     cfg = load_providers()[0]
     provs = cfg.get("providers") or {}
-    tried = []
+    health = read_health()
+    accounts = (read_ledger().get("accounts") or {})
+    tried, rested = [], []
     chain = [pid for i, pid in enumerate(chain) if pid and pid not in chain[:i]]
-    for i, pid in enumerate(chain):
-        p = provs.get(pid)
-        if not p:
-            tried.append((pid, "пула нет в providers.json"))
-            continue
+
+    def attempt(pid, p):
         log(f"Agent '{agent or tool}' calling provider '{pid}' ({p.get('type')})...")
         if p.get("type") == "cli":
             r = run_claude(work_folder or os.getcwd(), f"{system_prompt}\n\nПоставленная задача:\n{task}",
@@ -764,12 +911,39 @@ def run_chain(chain, system_prompt, task, agent=None, tool=None, work_folder=Non
         else:
             r = Reply(pid, False, f"PROVIDER_ERROR: неизвестный тип пула '{p.get('type')}'", "PROVIDER_ERROR")
         record(r, agent, tool)
+        note_health(r)
         if r.ok:
             log(f"Agent '{agent or tool}' answered via provider '{pid}' ({r.model}) in {(r.ms or 0) / 1000:.1f}s")
+        return r
+
+    for i, pid in enumerate(chain):
+        p = provs.get(pid)
+        if not p:
+            tried.append((pid, "пула нет в providers.json"))
+            continue
+        gate = pool_gate(pid, p, health, accounts)
+        if gate:
+            log(f"Skipping provider '{pid}' (agent '{agent or tool}'): {gate[1]}")
+            tried.append((pid, gate[1]))
+            if gate[0] == "pause":
+                rested.append(pid)
+            continue
+        low = budget_of(pid, p, accounts)
+        if low:
+            log(f"Budget warning for provider '{pid}': {low[1]}")
+        r = attempt(pid, p)
+        if r.ok:
             return r, tried
         tried.append((pid, r.short_why()))
         rest = ": запасных пулов больше нет" if i == len(chain) - 1 else "..."
         log(f"Provider '{pid}' {r.short_why()}, switching to fallback (agent '{agent or tool}'){rest}")
+    # every other pool failed too: a resting pool may have recovered sooner than its pause says
+    for pid in rested:
+        log(f"Agent '{agent or tool}': no other pool answered, trying paused provider '{pid}' anyway")
+        r = attempt(pid, provs[pid])
+        if r.ok:
+            return r, tried
+        tried.append((pid, r.short_why() + ", повторно"))
     return None, tried
 
 
@@ -828,45 +1002,96 @@ def as_list(v):
     return [str(x) for x in (v or []) if x]
 
 
-def handle_consilium(task, work_folder=None, members=None, chair=None, files=None):
+def handle_consilium(task, work_folder=None, members=None, chair=None, files=None, rounds=None):
     data = load_agents()[0]
     agents = data.get("agents") or {}
     conf = data.get("consilium") or {}
     members = as_list(members) or as_list(conf.get("members")) or [a for a in ("architect", "developer", "reviewer") if a in agents]
     chair = chair or conf.get("chair") or (members[0] if members else None)
+    try:
+        rounds = max(1, min(2, int(rounds if rounds not in (None, "") else conf.get("rounds", 2))))
+    except (TypeError, ValueError):
+        rounds = 2
     missing = [m for m in members + [chair] if m not in agents]
     if not members or missing:
         return f"CONSILIUM_ERROR: нет ролей: {', '.join(missing) or 'участники не заданы'}. Есть: {', '.join(agents)}"
     log(f"Запуск Мультимодельного Консилиума по задаче: {task[:60]}...")
-    log(f"Consilium members: {', '.join(members)}; chair: {chair}")
+    log(f"Consilium members: {', '.join(members)}; chair: {chair}; rounds: {rounds}")
     t0 = time.time()
     context = project_context(work_folder, task, files)[0] if work_folder else ""
-    member_task = (f"{task}\n\nТы участник консилиума из нескольких моделей. Дай своё независимое решение: "
-                   "ключевые выводы, риски, конкретную рекомендацию. Коротко и по делу.")
     parent = contextvars.copy_context()
-    with ThreadPoolExecutor(max_workers=len(members)) as ex:
-        results = list(ex.map(lambda m: parent.copy().run(agent_exec, m, member_task, None, work_folder,
-                                                          tool="consilium", context=context), members))
-    answered = [x for x in results if not x.get("error")]
+
+    def run_all(jobs):
+        with ThreadPoolExecutor(max_workers=max(1, len(jobs))) as ex:
+            return list(ex.map(lambda j: parent.copy().run(agent_exec, j[0], j[1], None, work_folder,
+                                                           tool="consilium", context=context), jobs))
+
+    # round 1: everyone answers on their own
+    log(f"Consilium round 1: {len(members)} members answer independently")
+    member_task = (f"{task}\n\nТы участник консилиума из нескольких моделей. Дай своё независимое решение: "
+                   "ключевые выводы, риски, конкретную рекомендацию. Коротко и по делу. В конце строка "
+                   "«Уверенность: N/10» — насколько ты уверен в своей рекомендации.")
+    first = run_all([(m, member_task) for m in members])
+    answered = [x for x in first if not x.get("error")]
     if not answered:
-        return "CONSILIUM_ERROR: ни один участник не ответил. " + " | ".join(x["error"] for x in results)
-    joined = "\n\n".join(f"### {x['role']} (пул {x['reply'].provider}, модель {x['reply'].model})\n{x['reply'].text}" for x in answered)
-    verdict_task = (f"Задача консилиума:\n{task}\n\nОтветы участников:\n\n{joined}\n\n"
-                    "Ты председатель. Сформируй итог: 1) в чём участники согласны; 2) где расходятся и чья позиция "
-                    "сильнее и почему; 3) итоговое решение; 4) план шагов. Опирайся на ответы участников и проверяемые факты, "
-                    "не выдумывай того, чего в них нет.")
+        return "CONSILIUM_ERROR: ни один участник не ответил. " + " | ".join(x["error"] for x in first)
+    letters = {x["agent"]: chr(ord("A") + i) for i, x in enumerate(answered)}
+    final = {x["agent"]: x for x in answered}
+    second = []
+
+    # round 2: each member reads the others' answers without names, criticises them and revises its own
+    if rounds >= 2 and len(answered) >= 2:
+        log(f"Consilium round 2: {len(answered)} members review each other's answers")
+        jobs = []
+        for x in answered:
+            others = "\n\n".join(f"### Участник {letters[y['agent']]}\n{y['reply'].text}" for y in answered if y is not x)
+            jobs.append((x["agent"],
+                         f"Задача консилиума:\n{task}\n\nТвой ответ в первом раунде:\n{x['reply'].text}\n\n"
+                         f"Ответы других участников (имена скрыты):\n\n{others}\n\n"
+                         "Второй раунд. 1) «Критика»: где другие ошибаются или упустили важное, где они правы, а ты нет; "
+                         "по пункту на участника, по существу. 2) «Уточнённое решение»: твоё итоговое решение с учётом "
+                         "сильных идей других; не повторяй первый ответ, если он не изменился, напиши «без изменений» и "
+                         "главный довод. 3) Строка «Уверенность: N/10»."))
+        second = run_all(jobs)
+        for x, y in zip(answered, second):
+            if not y.get("error"):
+                final[x["agent"]] = y
+
+    def conf_of(text):
+        m = re.findall(r"Уверенность[^\d\n]{0,12}(\d{1,2})\s*/\s*10", text or "", re.I)
+        return int(m[-1]) if m else None
+
+    joined = "\n\n".join(
+        f"### Участник {letters[a]}: {final[a]['role']} (пул {final[a]['reply'].provider}, модель {final[a]['reply'].model})\n"
+        f"{final[a]['reply'].text}" for a in letters)
+    verdict_task = (f"Задача консилиума:\n{task}\n\n"
+                    + ("Итоговые позиции участников после взаимной критики:" if second else "Ответы участников:")
+                    + f"\n\n{joined}\n\n"
+                    "Ты председатель. Сформируй итог: 1) в чём участники согласны; 2) где расходятся, кто с кем "
+                    "(по буквам участников) и чья позиция сильнее и почему; 3) итоговое решение; 4) план шагов; "
+                    "5) строка «Уверенность итога: N/10» и одной фразой, что могло бы её повысить. Опирайся на ответы "
+                    "участников и проверяемые факты, не выдумывай того, чего в них нет.")
     log(f"Consilium chair '{chair}' is writing the verdict ({len(answered)} of {len(members)} answered)")
     verdict = agent_exec(chair, verdict_task, None, work_folder, tool="consilium", context="")
     secs = int(time.time() - t0)
-    rows = ["| Роль | Ответил пул | Модель | Токены | Сначала пробовал |", "|---|---|---|---|---|"]
-    for x in results:
+    rows = ["| Участник | Роль | Ответил пул | Модель | Токены (раунды) | Уверенность | Сначала пробовал |",
+            "|---|---|---|---|---|---|---|"]
+    by2 = {x["agent"]: y for x, y in zip(answered, second)}
+    for x in first:
         r = x.get("reply")
         if r:
-            tok = (r.usage or {}).get("total")
-            rows.append(f"| {x['role']} | {r.provider} | {r.model} | {tok if tok is not None else 'нет данных'} | "
-                        f"{'; '.join(f'{p} ({w})' for p, w in x['tried']) or '—'} |")
+            y = by2.get(x["agent"])
+            toks = [(r.usage or {}).get("total")] + ([(y["reply"].usage or {}).get("total")] if y and not y.get("error") else [])
+            tok = " + ".join("нет данных" if t is None else str(t) for t in toks)
+            c1, c2 = conf_of(r.text), conf_of(y["reply"].text) if y and not y.get("error") else None
+            cf = "—" if c1 is None and c2 is None else (f"{c1 if c1 is not None else '?'} → {c2}" if c2 is not None else f"{c1}")
+            note = "; ".join(f"{p} ({w})" for p, w in x["tried"]) or "—"
+            if y and y.get("error"):
+                note += "; во 2-м раунде не ответил"
+            rows.append(f"| {letters[x['agent']]} | {x['role']} | {r.provider} | {r.model} | {tok} | {cf} | {note} |")
         else:
-            rows.append(f"| {x.get('role', x['agent'])} | не ответил | — | — | {'; '.join(f'{p} ({w})' for p, w in x.get('tried', [])) or '—'} |")
+            rows.append(f"| — | {x.get('role', x['agent'])} | не ответил | — | — | — | "
+                        f"{'; '.join(f'{p} ({w})' for p, w in x.get('tried', [])) or '—'} |")
     if verdict.get("error"):
         verdict_text = f"Итог не сформирован: {verdict['error']}"
         verdict_head = f"## Итог (председатель {chair} не ответил)"
@@ -874,15 +1099,86 @@ def handle_consilium(task, work_folder=None, members=None, chair=None, files=Non
         vr = verdict["reply"]
         verdict_text = vr.text
         verdict_head = f"## Итог (председатель: {verdict['role']}, пул {vr.provider}, модель {vr.model})"
+    how = (f"2 раунда: независимые ответы, затем взаимная критика ({sum(1 for y in second if not y.get('error'))} из "
+           f"{len(answered)} ответили во втором)" if second else "1 раунд: независимые ответы")
+    round1 = "\n\n".join(f"### Участник {letters[x['agent']]}: {x['role']} (пул {x['reply'].provider})\n{x['reply'].text}"
+                          for x in answered)
     report = "\n".join([f"# Консилиум: {len(answered)} из {len(members)} участников ответили, {secs} с", "",
-                        f"**Задача:** {task}", "", *rows, "", verdict_head, "", verdict_text, "",
-                        "## Ответы участников", "", joined])
+                        f"**Задача:** {task}", "", f"**Ход:** {how}.", "", *rows, "", verdict_head, "", verdict_text, "",
+                        "## Раунд 1: независимые ответы", "", round1]
+                       + (["", "## Раунд 2: критика и уточнённые решения", "",
+                           "\n\n".join(f"### Участник {letters[x['agent']]}: {x['role']}\n"
+                                        + (y["reply"].text if not y.get("error") else f"не ответил: {y['error']}")
+                                        for x, y in zip(answered, second))] if second else []))
     path = save_report(report)
-    short = "\n\n".join(f"### {x['role']} ({x['reply'].provider})\n{x['reply'].text[:1200]}"
-                        + ("\n…(сокращено)" if len(x['reply'].text) > 1200 else "") for x in answered)
-    return "\n".join([f"## Консилиум: ответили {len(answered)} из {len(members)}, {secs} с", "", *rows, "",
-                      verdict_head, "", verdict_text, "", "## Ответы участников (начало)", "", short, "",
-                      f"Полный протокол: {path}" if path else ""]).strip()
+    short = "\n\n".join(f"### Участник {letters[a]}: {final[a]['role']} ({final[a]['reply'].provider})\n"
+                         f"{final[a]['reply'].text[:1200]}" + ("\n…(сокращено)" if len(final[a]['reply'].text) > 1200 else "")
+                         for a in letters)
+    return "\n".join([f"## Консилиум: ответили {len(answered)} из {len(members)}, {secs} с", "", f"**Ход:** {how}.", "",
+                      *rows, "", verdict_head, "", verdict_text, "",
+                      "## Итоговые позиции участников (начало)" if second else "## Ответы участников (начало)", "", short, "",
+                      f"Полный протокол обоих раундов: {path}" if path and second else (f"Полный протокол: {path}" if path else "")]).strip()
+
+
+# ---------------------------------------------------------------- automatic choice of a role
+
+# Which role takes a task, by the words in it. Checked in this order; agents.json can replace the list
+# with its own "routing": [{"agent": ..., "words": [...], "why": ...}]. Free and predictable: no model call.
+DEFAULT_ROUTES = [
+    {"agent": "security_auditor", "why": "безопасность",
+     "words": ["безопасн", "уязвим", "секрет", "утечк", "инъекц", "xss", "csrf", "security", "vulnerab", "пароль", "токен доступа"]},
+    {"agent": "reviewer", "why": "проверка кода",
+     "words": ["ревью", "review", "проверь", "проверить код", "найди ошибк", "найти ошибк", "баг", "diff", "pull request", "замечани"]},
+    {"agent": "architect", "why": "архитектура",
+     "words": ["архитектур", "спроектир", "проектирован", "структуру проекта", "микросервис", "design", "схем", "выбери стек"]},
+    {"agent": "llmops", "why": "модели и промпты",
+     "words": ["промпт", "prompt", "rag", "дообуч", "fine-tun", "эмбеддинг", "embedding", "какую модель", "стоимость запрос"]},
+    {"agent": "deepseek_expert", "why": "алгоритмы и отладка",
+     "words": ["алгоритм", "отлад", "debug", "сложност", "оптимизир", "производительн", "утечка памяти", "трассировк", "stack trace"]},
+    {"agent": "kimi_researcher", "why": "исследование и большие тексты",
+     "words": ["исследу", "документаци", "сравни", "альтернатив", "обзор", "большой файл", "весь проект", "длинн"]},
+    {"agent": "developer", "why": "написать код",
+     "words": ["напиши", "реализ", "сгенерир", "создай", "добавь", "функци", "класс", "тест", "скрипт", "implement", "write", "код"]},
+]
+CONSILIUM_HINTS = ("консилиум", "несколько мнений", "какой вариант лучше", "что выбрать", "сравни подход", "плюсы и минусы")
+SHORT_TASK = 300
+
+
+def route_task(task, data=None):
+    """(role, why, words) for a task, by keyword hits; short simple tasks go to the cheap fast role."""
+    data = data or load_agents()[0]
+    agents = data.get("agents") or {}
+    low = (task or "").lower()
+    best = None
+    for i, r in enumerate(data.get("routing") or DEFAULT_ROUTES):
+        if r.get("agent") not in agents:
+            continue
+        hits = [w for w in r.get("words") or [] if w.lower() in low]
+        if hits and (not best or len(hits) > len(best[2])):
+            best = (r["agent"], r.get("why") or r["agent"], hits)
+    if best and best[0] == "developer" and len(task) < SHORT_TASK and "fast_developer" in agents:
+        return "fast_developer", "короткая задача на код: быстрая дешёвая модель", best[2]
+    if best:
+        return best
+    if len(task) < SHORT_TASK and "fast_developer" in agents:
+        return "fast_developer", "короткий вопрос без особой темы: быстрая дешёвая модель", []
+    default = data.get("default_agent") if data.get("default_agent") in agents else next(iter(agents), None)
+    return default, "тема не распознана: роль по умолчанию", []
+
+
+def handle_auto_run(task, work_folder=None, files=None):
+    data = load_agents()[0]
+    agent, why, hits = route_task(task, data)
+    if not agent:
+        return "AGENT_ERROR: в agents.json нет ни одной роли"
+    log(f"Auto route: '{agent}' ({why}{'; слова: ' + ', '.join(hits) if hits else ''})")
+    res = agent_exec(agent, task, None, work_folder, tool="auto_run", files=files)
+    pick = f"> Автовыбор: роль **{agent}** ({why}" + (f"; найдено: {', '.join(hits[:5])}" if hits else "") + ")."
+    if any(h in task.lower() for h in CONSILIUM_HINTS):
+        pick += " Задача похожа на выбор между вариантами: для нескольких независимых мнений вызови consilium."
+    if res.get("error"):
+        return res["error"] + "\n\n" + pick
+    return agent_header(res) + "\n" + pick + "\n\n" + res["reply"].text
 
 
 def save_report(text):
@@ -969,6 +1265,11 @@ def handle_model_ask(provider, question, work_folder=None, model=None, files=Non
     if model:
         p["model"], p["model_env"] = model, None
     folder = work_folder or os.getcwd()
+    note = ""
+    gate = pool_gate(pid, p, read_health(), read_ledger().get("accounts") or {})
+    if gate:
+        note = f"> Пул {pid} {gate[1]}; спрашиваю его всё равно, раз он назван прямо.\n\n"
+        log(f"Provider '{pid}' is {gate[0]}d ({gate[1]}), asking it anyway: model_ask named it")
     log(f"Routing {prov_model(p)} to provider '{pid}'...")
     if p.get("type") == "cli":
         r = run_claude(folder, question, tools_arg="Read,Grep,Glob", model=prov_model(p))
@@ -978,11 +1279,12 @@ def handle_model_ask(provider, question, work_folder=None, model=None, files=Non
             f"\n\nМатериалы проекта (прочитаны мостом с диска):\n{ctx}" if ctx else "")
         r = call_openai(pid, p, [{"role": "system", "content": sp}, {"role": "user", "content": question}])
     record(r, tool="model_ask")
+    note_health(r)
     if r.ok:
         log(f"Agent 'model_ask' answered via provider '{pid}' ({r.model}) in {(r.ms or 0) / 1000:.1f}s")
     else:
         log(f"Agent 'model_ask' failed: {pid} ({r.short_why()})")
-    return f"### [Пул: {pid} | Модель: {r.model}]\n\n{r.text}" if r.ok else r.text
+    return (f"### [Пул: {pid} | Модель: {r.model}]\n\n{note}{r.text}" if r.ok else r.text + ("\n\n" + note.strip() if note else ""))
 
 
 def probe_models(pid, p):
@@ -1021,8 +1323,9 @@ def handle_models_list(check=False):
         with ThreadPoolExecutor(max_workers=8) as ex:
             probes = dict(zip(provs, ex.map(lambda kv: probe_models(*kv), provs.items())))
     lines = [f"### Пулы моделей ({len(provs)})", "", f"**Пул по умолчанию:** `{cfg.get('default_provider')}`", "",
-             "| Пул | Модель | Шлюз | Ключ | Роли | Токены | Последний ответ | " + ("Проверка сейчас |" if check else ""),
-             "|---|---|---|---|---|---|---|" + ("---|" if check else "")]
+             "| Пул | Модель | Шлюз | Ключ | Состояние | Роли | Токены | Последний ответ | " + ("Проверка сейчас |" if check else ""),
+             "|---|---|---|---|---|---|---|---|" + ("---|" if check else "")]
+    health, accounts = read_health(), led.get("accounts") or {}
     for pid, p in provs.items():
         st, src = key_state(p)
         key = {"cli": "CLI " + ("найден" if find_claude() else "не найден"), "none": "не нужен",
@@ -1035,10 +1338,13 @@ def handle_models_list(check=False):
         if row.get("last_error_at") and (not row.get("last_ok") or row["last_error_at"] > row["last_ok"]):
             last = f"ошибка {row['last_error_at']}"
         where = p.get("command") if p.get("type") == "cli" else host_of(prov_base(p))
-        lines.append(f"| **{pid}** | `{prov_model(p)}` | {where} | {key} | {roles or '—'} | {row.get('total_tokens', 0)} | {last} |"
+        gate, low = pool_gate(pid, p, health, accounts), budget_of(pid, p, accounts)
+        state = gate[1] if gate else (low[1] if low else "в строю")
+        lines.append(f"| **{pid}** | `{prov_model(p)}` | {where} | {key} | {state} | {roles or '—'} | {row.get('total_tokens', 0)} | {last} |"
                      + (f" {probes.get(pid)} |" if check else ""))
     lines += ["", "Ключ «есть» значит, что переменная задана; работает ли ключ, показывает models_list(check=true) "
-                  "или `python claude_bridge.py --check`."]
+                  "или `python claude_bridge.py --check`. Пул на паузе роли пропускают до её конца (или пока он снова "
+                  "не ответит на прямой model_ask); снять паузу: `python claude_bridge.py --resume`."]
     return "\n".join(lines)
 
 
@@ -1170,13 +1476,22 @@ TOOLS = [
     {"name": "models_list", "description": "Пулы моделей: модель, шлюз, есть ли ключ, какие роли используют, токены и последний ответ. "
                                            "check=true дополнительно проверяет шлюзы (без расхода токенов).",
      "inputSchema": {"type": "object", "properties": {"check": {"type": "boolean", "description": "Проверить шлюзы сейчас"}}}},
-    {"name": "consilium", "description": "Консилиум моделей: участники (по умолчанию DeepSeek, GLM, MiniMax, Kimi и Grok) отвечают одновременно, "
-                                         "председатель (Claude) сводит ответы в итог: согласие, расхождения, решение, план. "
-                                         "Для архитектурных решений и новых модулей. Полный протокол сохраняется в файл.",
+    {"name": "auto_run", "description": "Сам выбирает роль под задачу (безопасность, ревью, архитектура, алгоритмы, код, исследование) "
+                                        "по словам в ней и отдаёт ей задачу; короткие простые задачи уходят на быструю дешёвую модель. "
+                                        "В ответе написано, какая роль выбрана и почему.",
+     "inputSchema": {"type": "object", "properties": {"task": S("Задача"), "work_folder": S("Папка проекта"),
+                                                      "files": S("Файлы проекта через запятую (необязательно)")},
+                     "required": ["task"]}},
+    {"name": "consilium", "description": "Консилиум моделей: участники (по умолчанию DeepSeek, GLM, MiniMax, Kimi и Grok) сначала отвечают "
+                                         "независимо, во втором раунде читают ответы друг друга без имён, критикуют и уточняют свои; "
+                                         "председатель (Claude) пишет итог: согласие, расхождения, решение, план и уверенность. "
+                                         "Для архитектурных решений и выбора между вариантами. Полный протокол сохраняется в файл.",
      "inputSchema": {"type": "object", "properties": {"task": S("Вопрос или задача для консилиума"), "work_folder": S("Папка проекта"),
                                                       "files": S("Файлы проекта через запятую (необязательно)"),
                                                       "members": S("Роли через запятую вместо состава по умолчанию"),
-                                                      "chair": S("Роль председателя вместо заданной")}, "required": ["task"]}},
+                                                      "chair": S("Роль председателя вместо заданной"),
+                                                      "rounds": {"type": "integer", "description": "1 = только независимые ответы (дешевле), 2 = с взаимной критикой (по умолчанию)"}},
+                     "required": ["task"]}},
     {"name": "token_balance", "description": "Отчёт по токенам из token_usage.json: расход по пулам и счетам, стоимость, остатки, ошибки.",
      "inputSchema": {"type": "object", "properties": {}}},
     {"name": "model_switch", "description": "Сменить пул по умолчанию для model_ask (deepseek, glm, minimax, kimi, qwen, grok, gpt, claude или id пула).",
@@ -1206,7 +1521,10 @@ def call_tool(name, args):
     if name == "models_list":
         return handle_models_list(bool(args.get("check")))
     if name == "consilium":
-        return handle_consilium(args.get("task", ""), given, args.get("members"), args.get("chair"), args.get("files"))
+        return handle_consilium(args.get("task", ""), given, args.get("members"), args.get("chair"), args.get("files"),
+                                args.get("rounds"))
+    if name == "auto_run":
+        return handle_auto_run(args.get("task", ""), given, args.get("files"))
     if name == "token_balance":
         return handle_token_balance()
     if name == "model_switch":
@@ -1281,19 +1599,22 @@ def cli_status():
     print(f".env:           {', '.join(f for f in env_files() if os.path.isfile(f)) or 'нет'}")
     print(f"учёт токенов:   {ledger_path()}")
     print(f"Claude CLI:     {find_claude() or 'не найден'}")
+    health, accounts = read_health(), read_ledger().get("accounts") or {}
     print(f"\nПулы (по умолчанию {cfg.get('default_provider')}):")
     for pid, p in (cfg.get("providers") or {}).items():
         st, src = key_state(p)
         key = {"cli": "CLI", "none": "ключ не нужен", "set": f"ключ есть ({src})",
                "missing": f"НЕТ КЛЮЧА: {p.get('api_key_env')}"}[st]
         where = p.get("command") if p.get("type") == "cli" else host_of(prov_base(p))
-        print(f"  {pid:<20} {prov_model(p):<22} {where:<26} {key}")
+        gate = pool_gate(pid, p, health, accounts)
+        print(f"  {pid:<20} {prov_model(p):<22} {where:<26} {key}" + (f"  [{gate[1]}]" if gate else ""))
     print("\nРоли:")
     for aid, a in (data.get("agents") or {}).items():
         print(f"  {aid:<18} {' > '.join([a.get('primary_provider') or '?'] + list(a.get('fallback_providers') or []))}")
     conf = data.get("consilium") or {}
     if conf:
-        print(f"\nКонсилиум: {', '.join(as_list(conf.get('members')))}; председатель {conf.get('chair')}")
+        print(f"\nКонсилиум: {', '.join(as_list(conf.get('members')))}; председатель {conf.get('chair')}; "
+              f"раундов {conf.get('rounds', 2)}")
     t = read_ledger().get("total_stats") or {}
     print(f"\nТокены: {t.get('total_tokens', 0)} за {t.get('total_requests', 0)} запросов, ${t.get('total_cost_usd', 0)}")
 
@@ -1329,6 +1650,9 @@ def cli_selftest():
     for m in as_list(conf.get("members")) + ([conf["chair"]] if conf.get("chair") else []):
         if m not in agents:
             problems.append(f"консилиум: роли '{m}' нет")
+    for r in data.get("routing") or []:
+        if r.get("agent") not in agents:
+            problems.append(f"routing: роли '{r.get('agent')}' нет")
     print(f"ai-bridge {VERSION}: {len(TOOLS)} инструментов, {len(provs)} пулов, {len(agents)} ролей, {len(skills)} навыков")
     missing = sorted({p['api_key_env'] for p in provs.values() if key_state(p)[0] == "missing"})
     print("Нет ключей: " + (", ".join(missing) if missing else "все ключи заданы"))
@@ -1397,7 +1721,8 @@ def legacy_sources():
         for n in names:
             out.append(os.path.join(d, n))
         try:
-            out += [os.path.join(d, n) for n in sorted(os.listdir(d)) if n.startswith("claude_bridge.py.bak-")]
+            out += [os.path.join(d, n) for n in sorted(os.listdir(d))
+                    if n.startswith(("claude_bridge.py.bak-", "multillm_bridge.py.retired-"))]
         except OSError:
             pass
     seen, files = set(), []
@@ -1461,6 +1786,67 @@ def cli_import_keys(extra, force=False):
     return 0
 
 
+OLD_BRIDGES = ("multillm_bridge.py", "multillm-bridge.py")
+
+
+def mentions_old(entry):
+    if not isinstance(entry, dict):
+        return False
+    words = [str(entry.get("command") or "")] + [str(a) for a in entry.get("args") or []]
+    return any(o in w.replace("\\", "/").lower() for w in words for o in OLD_BRIDGES)
+
+
+def cli_retire_old():
+    """Take the old multillm-bridge (keys written in its code) out of Antigravity and Claude Code. ai-bridge 4
+    covers all it did. Every changed file is backed up; the old script is renamed, not deleted, so
+    --import-keys can still read keys from it. Prints names only, never key values."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    done = []
+    for cfg_path in (os.path.join(HOME, ".gemini", "config", "mcp_config.json"),
+                     os.path.join(HOME, ".gemini", "antigravity", "mcp_config.json")):
+        data = read_json(cfg_path)
+        servers = (data or {}).get("mcpServers")
+        if not isinstance(servers, dict):
+            continue
+        old = [n for n, e in servers.items() if mentions_old(e) or n == "multillm-bridge"]
+        if not old:
+            continue
+        shutil.copy2(cfg_path, f"{cfg_path}.bak-{stamp}")
+        for n in old:
+            servers.pop(n)
+        write_json_atomic(cfg_path, data)
+        done.append(f"Antigravity ({cfg_path}): убран {', '.join(old)}; копия {os.path.basename(cfg_path)}.bak-{stamp}")
+    cli = find_claude()
+    claude_json = read_json(os.path.join(HOME, ".claude.json")) or {}
+    user = [n for n, e in (claude_json.get("mcpServers") or {}).items() if mentions_old(e) or n == "multillm-bridge"]
+    for n in user:
+        if not cli:
+            done.append(f"Claude Code: {n} остался, Claude CLI не найден (убрать: claude mcp remove {n} -s user)")
+            continue
+        res = subprocess.run([cli, "mcp", "remove", n, "-s", "user"], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", creationflags=NO_WINDOW)
+        done.append(f"Claude Code: {n} " + ("убран из настроек пользователя" if res.returncode == 0
+                                          else f"не убран: {(res.stderr or res.stdout).strip()[:200]}"))
+    projects = [f"{proj}: {n}" for proj, pc in (claude_json.get("projects") or {}).items() if isinstance(pc, dict)
+                for n, e in (pc.get("mcpServers") or {}).items() if mentions_old(e)]
+    if projects:
+        done.append("Claude Code, настройки отдельных проектов (не трогаю, убрать вручную: claude mcp remove <имя> "
+                    "в папке проекта): " + "; ".join(projects[:10]))
+    for d in config_dirs():
+        for n in OLD_BRIDGES:
+            f = os.path.join(d, n)
+            if os.path.isfile(f):
+                os.replace(f, f"{f}.retired-{stamp}")
+                done.append(f"{f} переименован в {n}.retired-{stamp}: его больше никто не запускает")
+    print("Старый multillm-bridge: " + ("не найден, убирать нечего" if not done else "убран"))
+    for line in done:
+        print("  " + line)
+    if done:
+        print("Перезапусти Antigravity и Claude Code, чтобы они перечитали список серверов. Все инструменты "
+              "старого моста есть в ai-bridge 4: model_ask, consilium, agent_run.")
+    return 0
+
+
 def cli_check(only):
     cfg = load_providers()[0]
     provs = {k: v for k, v in (cfg.get("providers") or {}).items() if not only or k in only}
@@ -1504,12 +1890,18 @@ if __name__ == "__main__":
             pass
     if "--status" in argv:
         cli_status()
+    elif "--resume" in argv:
+        rest = [a for a in argv if not a.startswith("--")]
+        done = resume_pools(rest[0] if rest else None)
+        print("Пауза снята: " + (", ".join(done) if done else "ни один пул не был на паузе"))
     elif "--selftest" in argv:
         sys.exit(cli_selftest())
     elif "--import-keys" in argv:
         sys.exit(cli_import_keys([a for a in argv if not a.startswith("--")], force="--force" in argv))
     elif "--keys" in argv:
         sys.exit(cli_keys([a for a in argv if not a.startswith("--")]))
+    elif "--retire-old" in argv:
+        sys.exit(cli_retire_old())
     elif "--check" in argv:
         sys.exit(cli_check([a for a in argv if not a.startswith("--")]))
     else:
