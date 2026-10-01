@@ -59,6 +59,7 @@ antigravity-claude-bridge/
 │       └── context_booster/
 │           └── SKILL.md                   # Навык ускорения извлечения контекста
 ├── scripts/
+│   ├── install-council.ps1                # Установка одним файлом, без клонирования
 │   └── install.ps1                        # Скрипт автоматической установки для Windows
 ├── tools/
 │   ├── claude_bridge.py                   # Python MCP-сервер моста (claude_review, claude_ask, claude_implement)
@@ -79,7 +80,15 @@ antigravity-claude-bridge/
    ```
    *(войдите в свой аккаунт Anthropic при первом запуске)*.
 
-### Установка в 1 команду (PowerShell)
+### Установка без клонирования (одна команда PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/tagiriskaliev18-hash/antigravity-claude-bridge/main/scripts/install-council.ps1 | iex
+```
+
+`scripts/install-council.ps1` сам скачивает мосты и правила, дописывает `multillm-bridge` и `claude-bridge` в `~/.gemini/config/mcp_config.json` (остальные серверы сохраняются, делается `.bak`), регистрирует консилиум в Claude Code и проверяет, что `multillm_council` доступен. Новые ключи задайте перед запуском: `$env:OCTAVAPI_API_KEY="sk-..."` (а также `XYVERO_API_KEY`, `MULTILLM_API_KEY`, `MULTILLM_EXTRA_PROVIDERS`).
+
+### Установка в 1 команду из клона (PowerShell)
 
 1. Склонируйте этот репозиторий:
    ```bash
