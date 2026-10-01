@@ -86,3 +86,23 @@ antigravity-claude-bridge/
    }
    ```
 3. Скопируйте содержимое `config/` в `~/.gemini/config/`.
+
+---
+
+## 🖥️ Council Engine: настольное приложение
+
+Живая карта связки на твоём компьютере: какие процессы Antigravity, Claude Code и мостов запущены, какие MCP-серверы подключены, какие инструменты и модели доступны и каждый вызов моста (кто вызвал, что спросил, сколько длилось, чем закончилось). Приложение только читает и работает по адресу `127.0.0.1`.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\install-desktop.ps1
+```
+
+Установщик кладёт приложение в `%LOCALAPPDATA%\CouncilEngine`, подключает журнал вызовов к `claude-bridge` и `multillm-bridge` (с резервной копией настроек), создаёт ярлыки на рабочем столе и в меню «Пуск». После установки перезапусти Antigravity и открой новый чат Claude Code.
+
+| Файл | Что делает |
+|---|---|
+| `desktop/council_app.py` | Локальный сервер и окно приложения, сбор процессов, настроек и журнала |
+| `desktop/council_tap.py` | Прослойка между клиентом и мостом: пропускает трафик без изменений и пишет журнал в `~/.council/activity` |
+| `desktop/ui/index.html` | Интерфейс |
+
+Команды: `python council_app.py --status` (сводка в консоли), `--wire` / `--unwire` (подключить или убрать журнал). Удаление: `%LOCALAPPDATA%\CouncilEngine\uninstall.ps1`.

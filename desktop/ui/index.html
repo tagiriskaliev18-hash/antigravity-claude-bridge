@@ -1,0 +1,620 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Council Engine</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23070a16%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%23ff5a4e%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2711%27 fill=%27none%27 stroke=%27%234f8cff%27 stroke-width=%272%27/%3E%3C/svg%3E">
+<style>
+/* Operator console: rail (views + live status) | stage | dossier. Fonts are system-local so the app works offline. */
+:root{
+  --bg:#070a16; --panel:#0c1124; --panel2:#111832; --line:#1d2747; --grid:rgba(90,120,220,.07);
+  --fg:#d9e1ff; --dim:#8591bb; --faint:#4f5a82;
+  --accent:#ff5a4e; --ok:#3ddc97; --warn:#ffb547; --bad:#ff5a6e; --off:#5b6488;
+  --c-ag:#4f8cff; --c-cc:#e8875a; --c-srv:#b36bff; --c-tool:#3ddc97; --c-model:#ffb547;
+  --display:"Bahnschrift","DIN Alternate","Segoe UI Semibold",system-ui,sans-serif;
+  --mono:"Cascadia Mono","Consolas","SFMono-Regular",Menlo,ui-monospace,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--fg);font:13px/1.5 var(--mono);overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+button:focus-visible{outline:1px solid var(--accent);outline-offset:2px}
+code,pre{font-family:var(--mono)}
+.app{display:grid;grid-template-columns:230px minmax(0,1fr) 400px;height:100%}
+.app.closed{grid-template-columns:230px minmax(0,1fr) 0}
+/* rail */
+.rail{border-right:1px solid var(--line);background:var(--panel);padding:16px 14px;display:flex;flex-direction:column;gap:18px;overflow:auto}
+.brand b{display:block;font:700 16px var(--display);letter-spacing:.08em}
+.brand span{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+.sect{display:flex;flex-direction:column;gap:2px}
+.sect h4{margin:0 0 6px;font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
+.navb{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:3px;color:var(--dim);text-align:left;width:100%}
+.navb:hover{background:var(--panel2);color:var(--fg)}
+.navb.on{background:var(--panel2);color:var(--fg);box-shadow:inset 2px 0 0 var(--accent)}
+.navb em{margin-left:auto;font-style:normal;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
+.live{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.live div{display:flex;align-items:center;gap:8px}
+.live small{margin-left:auto;color:var(--faint);font-variant-numeric:tabular-nums}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none;background:var(--off)}
+.dot.ok{background:var(--ok);box-shadow:0 0 6px var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
+.dot.run{background:var(--warn);animation:blink 1s infinite}
+@keyframes blink{50%{opacity:.3}}
+.foot{margin-top:auto;color:var(--faint);font-size:11px;display:flex;flex-direction:column;gap:2px}
+/* main */
+.main{position:relative;display:flex;flex-direction:column;min-width:0;background:
+  linear-gradient(var(--grid) 1px,transparent 1px) 0 0/32px 32px,
+  linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/32px 32px, var(--bg)}
+.top{display:flex;gap:20px;align-items:flex-end;justify-content:space-between;padding:16px 22px 10px;flex-wrap:wrap}
+.eyebrow{font-size:10px;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
+h1{margin:2px 0 0;font:700 28px/1 var(--display);letter-spacing:.1em;text-transform:uppercase}
+.kpis{display:flex;gap:18px;flex-wrap:wrap}
+.kpi{display:flex;flex-direction:column;align-items:flex-end}
+.kpi b{font:600 20px var(--display);font-variant-numeric:tabular-nums}
+.kpi span{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.stage{position:relative;flex:1;min-height:0}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.pane{position:absolute;inset:0;overflow:auto;padding:4px 22px 40px}
+.hint{position:absolute;left:22px;bottom:14px;font-size:11px;color:var(--faint)}
+.banner{margin:0 22px 8px;border:1px solid var(--warn);color:var(--warn);background:rgba(255,181,71,.06);padding:8px 12px;font-size:12px}
+/* tables */
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{font-weight:500;text-align:left;color:var(--faint);font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg)}
+td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+td.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+tr.click{cursor:pointer} tr.click:hover td{background:var(--panel)}
+.muted{color:var(--dim)} .faint{color:var(--faint)}
+.trunc{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+h3.sec{font:600 13px var(--display);letter-spacing:.14em;text-transform:uppercase;margin:22px 0 8px;color:var(--fg)}
+h3.sec:first-child{margin-top:8px}
+.tag{display:inline-block;border:1px solid var(--line);padding:0 6px;border-radius:2px;font-size:11px;color:var(--dim);white-space:nowrap}
+.tag.ok{color:var(--ok);border-color:rgba(61,220,151,.4)} .tag.bad{color:var(--bad);border-color:rgba(255,90,110,.4)} .tag.warn{color:var(--warn);border-color:rgba(255,181,71,.4)}
+.btn{border:1px solid var(--line);padding:4px 10px;color:var(--dim);font-size:12px}
+.btn:hover{color:var(--fg);border-color:var(--dim)}
+.prose{max-width:760px;display:flex;flex-direction:column;gap:10px}
+.prose p{margin:0}
+.prose ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+/* dossier */
+.dossier{border-left:1px solid var(--line);background:var(--panel);overflow:auto;min-width:0}
+.app.closed .dossier{border:0;overflow:hidden}
+.dhead{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);z-index:1}
+.dhead button{font-size:18px;line-height:1;padding:2px 6px;color:var(--dim)}
+.dbody{padding:16px;display:flex;flex-direction:column;gap:16px}
+.dbody h2{margin:0;font:600 19px/1.25 var(--display);letter-spacing:.03em;word-break:break-word}
+.meta{display:flex;flex-wrap:wrap;gap:6px}
+.blk h5{margin:0 0 6px;font-size:10px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
+.blk p{margin:0}
+.kv{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 10px;font-size:12px}
+.kv dt{color:var(--dim)} .kv dd{margin:0;word-break:break-all}
+pre.box{margin:0;background:var(--bg);border:1px solid var(--line);padding:10px;font-size:11.5px;white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto}
+.list{display:flex;flex-direction:column;border:1px solid var(--line)}
+.list button,.list div.row{display:flex;gap:8px;align-items:baseline;padding:6px 8px;border-top:1px solid var(--line);text-align:left;font-size:12px;width:100%}
+.list > :first-child{border-top:0}
+.list button:hover{background:var(--panel2)}
+.list .r{margin-left:auto;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+.empty{color:var(--dim);padding:10px 0}
+@media (prefers-reduced-motion:reduce){.dot.run{animation:none}}
+</style>
+</head>
+<body>
+<div class="app closed" id="app">
+  <aside class="rail">
+    <div class="brand"><b>COUNCIL ENGINE</b><span>этот компьютер</span></div>
+    <div class="sect" id="views"><h4>Разделы</h4></div>
+    <div class="sect"><h4>Сейчас</h4><div class="live" id="live"></div></div>
+    <div class="foot" id="foot"></div>
+  </aside>
+
+  <main class="main">
+    <div class="top">
+      <div><div class="eyebrow" id="eyebrow">// живая карта</div><h1 id="title">Карта</h1></div>
+      <div class="kpis" id="kpis"></div>
+    </div>
+    <div id="banners"></div>
+    <div class="stage" id="stage">
+      <canvas id="cv"></canvas>
+      <div class="hint" id="hint">Узлы и связи взяты из твоих настроек. Пунктир: мост работает без журнала. Нажми на узел, чтобы увидеть подробности.</div>
+      <div class="pane" id="pane" hidden></div>
+    </div>
+  </main>
+
+  <aside class="dossier" id="dossier">
+    <div class="dhead"><span id="dpath"></span><button id="close" aria-label="Закрыть">×</button></div>
+    <div class="dbody" id="dbody"></div>
+  </aside>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const CLIENT = {antigravity:{n:"Antigravity", c:"#4f8cff"}, "claude-code":{n:"Claude Code", c:"#e8875a"}};
+const VIEWS = [["map","Карта"],["proc","Процессы"],["log","Журнал вызовов"],["cfg","Настройки и правила"],["how","Как это работает"]];
+let view = "map", CFG = null, ST = null, lastOk = 0, sel = null, failed = false;
+
+// ---------- formatting
+const fmtTime = t => t ? new Date(t*1000).toLocaleTimeString("ru-RU") : "—";
+const fmtDate = t => t ? new Date(t*1000).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
+const fmtAgo = t => { if(!t) return "—"; const s = Math.max(0, Date.now()/1000 - t);
+  if (s < 60) return Math.round(s)+" с назад"; if (s < 3600) return Math.round(s/60)+" мин назад";
+  if (s < 86400) return Math.round(s/3600)+" ч назад"; return Math.round(s/86400)+" дн назад"; };
+const fmtMs = ms => ms == null ? "идёт…" : ms < 1000 ? ms+" мс" : (ms/1000).toFixed(ms < 10000 ? 1 : 0)+" с";
+const fmtMB = b => (b/1048576).toFixed(b > 1e9 ? 0 : 1)+" МБ";
+const base = p => String(p||"").split(/[\\/]/).pop();
+
+// ---------- data
+async function getJSON(u){ const r = await fetch(u, {cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
+async function loadConfig(force){ CFG = await getJSON("/api/config"+(force?"?refresh=1":"")); buildGraph(); render(); }
+async function poll(){
+  try { ST = await getJSON("/api/state"); lastOk = Date.now(); failed = false; updateGraphState(); render(); }
+  catch(e){ failed = true; renderLive(); }
+  setTimeout(poll, 2000);
+}
+const procs = g => (ST?.processes.items || []).filter(p => !g || p.group === g);
+const calls = () => ST?.activity.calls || [];
+const servers = () => CFG?.servers || [];
+function bridgeOf(s){ return s.file ? CFG.bridges[s.file] : null; }
+function clientRunning(c){ return procs(c === "antigravity" ? "antigravity" : "claude").length > 0; }
+
+// ---------- rail
+function renderNav(){
+  const v = $("#views"); v.querySelectorAll("button").forEach(b => b.remove());
+  const counts = {proc: procs().length, log: ST?.activity.today.count ?? 0, cfg: CFG?.rules.length ?? 0};
+  VIEWS.forEach(([id, label]) => {
+    const b = document.createElement("button"); b.className = "navb"+(view===id?" on":"");
+    b.innerHTML = esc(label) + (counts[id] != null ? `<em>${counts[id]}</em>` : "");
+    b.onclick = () => setView(id); v.append(b);
+  });
+}
+function renderLive(){
+  const L = $("#live");
+  if (!ST || !CFG) { L.innerHTML = `<div class="muted">загрузка…</div>`; return; }
+  const ag = procs("antigravity"), cc = procs("claude"), running = ST.activity.today.running;
+  const bridges = procs("tap").length + procs("bridge").filter(p => !p.parent_in_set).length;
+  const tapped = servers().filter(s => s.tappable && s.tapped).length, tappable = servers().filter(s => s.tappable).length;
+  L.innerHTML = `
+    <div><span class="dot ${ag.length?"ok":""}"></span>Antigravity<small>${ag.length ? ag.length+" проц." : "не запущен"}</small></div>
+    <div><span class="dot ${cc.length?"ok":""}"></span>Claude Code<small>${cc.length ? cc.length+" проц." : "не запущен"}</small></div>
+    <div><span class="dot ${bridges?"ok":""}"></span>Мосты на связи<small>${bridges}</small></div>
+    <div><span class="dot ${running?"run":""}"></span>Вызовы сейчас<small>${running}</small></div>
+    <div><span class="dot ${tapped===tappable&&tappable?"ok":tapped?"warn":"bad"}"></span>Журнал подключён<small>${tapped} из ${tappable}</small></div>`;
+  $("#foot").innerHTML = failed ? `<span style="color:var(--bad)">нет связи с сервером приложения</span>`
+    : `<span>обновлено ${fmtTime(ST.ts)}</span><span>процессы: каждые 4 с</span><span>v${esc(CFG.app.version)}</span>`;
+}
+function renderKpis(){
+  if (!ST) return;
+  const t = ST.activity.today, cs = calls().filter(c => c.ms != null && c.start > Date.now()/1000 - 86400);
+  const avg = cs.length ? Math.round(cs.reduce((a,c) => a + c.ms, 0) / cs.length) : null;
+  $("#kpis").innerHTML = `
+    <div class="kpi"><b>${t.count}</b><span>вызовов сегодня</span></div>
+    <div class="kpi"><b style="color:${t.errors?"var(--bad)":"inherit"}">${t.errors}</b><span>с ошибкой</span></div>
+    <div class="kpi"><b>${avg==null?"—":fmtMs(avg)}</b><span>среднее время</span></div>
+    <div class="kpi"><b>${fmtMB(procs().filter(p=>p.group!=="app").reduce((a,p)=>a+(p.rss||0),0))}</b><span>память агентов</span></div>`;
+}
+function renderBanners(){
+  const out = [];
+  if (CFG) {
+    const off = servers().filter(s => s.tappable && !s.tapped);
+    if (off.length) out.push(`Журнал вызовов не подключён для: ${off.map(s => esc(s.name)+" ("+esc(CLIENT[s.client]?.n||s.client)+")").join(", ")}. Эти вызовы приложение не видит. Подключение: <code>python council_app.py --wire</code>, затем перезапуск Antigravity и нового чата Claude Code.`);
+    const keys = Object.values(CFG.bridges).filter(b => b.hardcoded_keys);
+    if (keys.length) out.push(`В файле ${keys.map(b => esc(base(b.file))).join(", ")} прямо в коде записаны API-ключи (${keys.reduce((a,b)=>a+b.hardcoded_keys,0)} шт.). Если репозиторий публичный, их видят все: стоит перевыпустить ключи и передавать их только через переменные окружения.`);
+  }
+  $("#banners").innerHTML = out.map(t => `<div class="banner">${t}</div>`).join("");
+  requestAnimationFrame(resize);
+}
+
+// ---------- views
+function setView(v){
+  view = v; const isMap = v === "map";
+  $("#cv").hidden = !isMap; $("#hint").hidden = !isMap; $("#pane").hidden = isMap;
+  $("#title").textContent = VIEWS.find(x => x[0]===v)[1];
+  $("#eyebrow").textContent = {map:"// живая карта", proc:"// диспетчер", log:"// все вызовы мостов", cfg:"// откуда берутся данные", how:"// без магии"}[v];
+  render(); if (isMap) requestAnimationFrame(resize);
+}
+function render(){
+  renderNav(); renderLive(); renderKpis();
+  if (!CFG || !ST) return;
+  if (view !== "how") pane().dataset.view = view;
+  if (view === "proc") renderProc(); else if (view === "log") renderLog();
+  else if (view === "cfg") renderCfg(); else if (view === "how") renderHow();
+  if (sel?.refresh) sel.refresh();
+}
+const pane = () => $("#pane");
+const keepScroll = fn => { const p = pane(), y = p.scrollTop; fn(); p.scrollTop = y; };
+
+function renderProc(){
+  const groups = [["antigravity","Antigravity"],["claude","Claude Code"],["tap","Журнал вызовов (прослойка)"],["bridge","Мосты MCP"],["bridge-child","Задачи, запущенные мостами"],["app","Это приложение"]];
+  const err = ST.processes.error ? `<div class="banner">Не удалось прочитать список процессов: ${esc(ST.processes.error)}</div>` : "";
+  keepScroll(() => pane().innerHTML = err + groups.map(([g, title]) => {
+    const list = procs(g).sort((a,b) => (a.start||0) - (b.start||0));
+    const mem = list.reduce((a,p) => a + (p.rss||0), 0);
+    return `<h3 class="sec">${title} <span class="faint">· ${list.length} · ${fmtMB(mem)}</span></h3>` + (list.length ? `
+      <table><thead><tr><th>PID</th><th>Процесс</th><th>Запущен</th><th class="num">Память</th><th class="num">CPU</th><th>Командная строка</th></tr></thead><tbody>
+      ${list.map(p => `<tr class="click" data-pid="${p.pid}"><td class="num">${p.pid}</td><td>${esc(p.name)}</td><td class="muted" style="white-space:nowrap">${fmtDate(p.start)}</td>
+        <td class="num">${fmtMB(p.rss||0)}</td><td class="num">${p.cpu==null?"—":p.cpu.toFixed(1)+"%"}</td><td class="trunc muted" title="${esc(p.cmd)}">${esc(p.cmd)}</td></tr>`).join("")}
+      </tbody></table>` : `<div class="empty">Не запущено.</div>`);
+  }).join(""));
+  pane().querySelectorAll("tr[data-pid]").forEach(tr => tr.onclick = () => openProc(+tr.dataset.pid));
+}
+
+function callRow(c){
+  const st = c.end == null ? `<span class="tag warn">идёт</span>` : c.error ? `<span class="tag bad">ошибка</span>` : `<span class="tag ok">готово</span>`;
+  const q = c.args?.prompt || c.args?.question || c.args?.task || c.args?.instruction || c.args?.focus || c.args?.work_folder || "";
+  return `<tr class="click" data-call="${esc(c.id)}"><td class="muted">${fmtTime(c.start)}</td>
+    <td>${esc(CLIENT[c.client]?.n || c.client)}</td><td>${esc(c.tool)}</td><td class="muted">${esc(c.model || "")}</td>
+    <td class="num">${fmtMs(c.ms)}</td><td>${st}</td><td class="trunc muted">${esc(q)}</td></tr>`;
+}
+function renderLog(){
+  const cs = calls();
+  const head = `<p class="muted" style="margin:0 0 10px">Записывается прослойкой журнала у каждого моста. Папка журнала: <code>${esc(ST.activity.log_dir)}</code>. Хранится ${30} дней.</p>`;
+  keepScroll(() => pane().innerHTML = head + (cs.length ? `<table><thead><tr><th>Время</th><th>Кто вызвал</th><th>Инструмент</th><th>Модель</th><th class="num">Длилось</th><th>Итог</th><th>Запрос</th></tr></thead>
+    <tbody>${cs.map(callRow).join("")}</tbody></table>` : `<div class="empty">Вызовов пока не было. Как только Antigravity или Claude Code обратятся к мосту, вызов появится здесь.</div>`));
+  pane().querySelectorAll("tr[data-call]").forEach(tr => tr.onclick = () => openCall(tr.dataset.call));
+}
+
+function renderCfg(){
+  const srv = servers();
+  const rows = srv.map((s,i) => `<tr class="click" data-srv="${i}"><td>${esc(CLIENT[s.client]?.n||s.client)}</td><td>${esc(s.name)}</td>
+    <td>${s.tappable ? (s.tapped ? `<span class="tag ok">подключён</span>` : `<span class="tag bad">нет</span>`) : `<span class="tag">не поддерживается</span>`}</td>
+    <td class="trunc muted" title="${esc(s.command+" "+s.args.join(" "))}">${esc(s.url || (s.command+" "+s.args.join(" ")))}</td><td class="trunc faint">${esc(s.config)}</td></tr>`).join("");
+  const provs = Object.values(CFG.bridges).flatMap(b => (b.providers||[]).map(p => ({...p, file:b.file, def:b.default_model})));
+  const rules = CFG.rules.map((r,i) => `<tr class="click" data-rule="${i}"><td>${esc(r.kind)}</td><td>${esc(base(r.path))}</td><td class="muted">${fmtDate(r.mtime)}</td><td class="trunc faint">${esc(r.path)}</td></tr>`).join("");
+  keepScroll(() => pane().innerHTML = `
+    <h3 class="sec">MCP-серверы в настройках <button class="btn" id="reload" style="margin-left:8px">Перечитать настройки</button></h3>
+    ${srv.length ? `<table><thead><tr><th>Клиент</th><th>Сервер</th><th>Журнал</th><th>Команда</th><th>Файл настроек</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty">В настройках Antigravity и Claude Code не найдено MCP-серверов.</div>`}
+    <h3 class="sec">Пулы моделей в multillm-bridge</h3>
+    ${provs.length ? `<table><thead><tr><th>Пул</th><th>Адрес</th><th class="num">Приоритет</th><th>Ключ</th><th>Модели</th></tr></thead><tbody>
+      ${provs.map(p => `<tr><td>${esc(p.name)}</td><td class="muted">${esc(p.base_url)}</td><td class="num">${esc(p.priority)}</td>
+        <td>${p.has_key?`<span class="tag ok">задан</span>`:`<span class="tag bad">нет</span>`}</td><td class="muted">${p.models.map(m => m===p.def?`<b style="color:var(--fg)">${esc(m)}</b>`:esc(m)).join(", ")}</td></tr>`).join("")}
+      </tbody></table><p class="faint" style="margin:6px 0 0">Жирным выделена модель по умолчанию. Значения ключей приложение не показывает и никуда не передаёт.</p>` : `<div class="empty">Пулы не найдены.</div>`}
+    <h3 class="sec">Правила и навыки</h3>
+    ${rules ? `<table><thead><tr><th>Что это</th><th>Файл</th><th>Изменён</th><th>Путь</th></tr></thead><tbody>${rules}</tbody></table>` : `<div class="empty">Файлов правил не найдено.</div>`}
+    <h3 class="sec">Приложение</h3>
+    <dl class="kv"><dt>Папка</dt><dd>${esc(CFG.app.dir)}</dd><dt>Python</dt><dd>${esc(CFG.app.python)}</dd><dt>Журнал</dt><dd>${esc(CFG.activity_dir)}</dd>
+      <dt>Claude CLI</dt><dd>${esc(CFG.claude_cli || "не найден")}</dd><dt>Настройки прочитаны</dt><dd>${fmtTime(CFG.ts)}</dd></dl>`);
+  $("#reload").onclick = () => loadConfig(true);
+  pane().querySelectorAll("tr[data-srv]").forEach(tr => tr.onclick = () => openServer(srv[+tr.dataset.srv].name));
+  pane().querySelectorAll("tr[data-rule]").forEach(tr => tr.onclick = () => openRule(CFG.rules[+tr.dataset.rule]));
+}
+
+function renderHow(){
+  if (pane().dataset.view === "how") return;
+  pane().innerHTML = `<div class="prose">
+    <h3 class="sec">Что показывает приложение</h3>
+    <p>Всё на экранах собрано с этого компьютера в момент показа. Ничего не придумано и не отправляется в интернет: приложение работает только по адресу 127.0.0.1 и только читает.</p>
+    <ul>
+      <li><b>Процессы</b>: список процессов Windows (Antigravity, Claude Code, мосты и то, что мосты запустили). Обновляется каждые 4 секунды.</li>
+      <li><b>MCP-серверы</b>: файл <code>~/.gemini/config/mcp_config.json</code> у Antigravity и <code>~/.claude.json</code> у Claude Code.</li>
+      <li><b>Инструменты и пулы моделей</b>: приложение запускает файл моста и читает его списки инструментов и пулов. Ключи только проверяются на наличие.</li>
+      <li><b>Журнал вызовов</b>: прослойка <code>council_tap.py</code> стоит между клиентом и мостом. Она пропускает каждый запрос без изменений и записывает, кто вызвал, какой инструмент, с какими параметрами, сколько длилось и чем закончилось. Записи лежат в <code>~/.council/activity</code>.</li>
+      <li><b>Правила</b>: GEMINI.md, правила и навыки Antigravity, CLAUDE.md, агенты и навыки Claude Code. Их можно открыть и прочитать.</li>
+    </ul>
+    <h3 class="sec">Чего приложение не видит</h3>
+    <ul>
+      <li>Внутренние субагенты Antigravity (<code>define_subagent</code>, <code>invoke_subagent</code>) и его собственные вызовы Gemini. Они не проходят через мосты, поэтому видны только как процессы Antigravity.</li>
+      <li>Встроенные инструменты Claude Code (чтение файлов, правки, команды). Видны только вызовы MCP-мостов.</li>
+      <li>Расход токенов: мосты не возвращают эти данные, поэтому их нет и в журнале.</li>
+      <li>Вызовы мостов, у которых журнал не подключён. Такие мосты отмечены красным.</li>
+    </ul>
+    <h3 class="sec">Как устроена связка</h3>
+    <ul>
+      <li><b>Antigravity</b> (Gemini) ведёт задачу и по правилам из GEMINI.md решает, когда звать Claude или совет моделей.</li>
+      <li><b>claude-bridge</b> запускает <code>claude -p</code> на этом компьютере: <code>claude_review</code> и <code>claude_ask</code> только читают проект, <code>claude_implement</code> может менять файлы.</li>
+      <li><b>multillm-bridge</b> отправляет вопрос в пулы моделей по API. Если первый пул ответил ошибкой, пробует следующий.</li>
+      <li><b>Claude Code</b> тоже подключён к multillm-bridge и может спрашивать другие модели.</li>
+    </ul>
+    <h3 class="sec">Команды</h3>
+    <ul>
+      <li><code>python council_app.py --status</code>: текстовая сводка в консоли.</li>
+      <li><code>python council_app.py --wire</code>: подключить журнал (делает резервные копии настроек).</li>
+      <li><code>python council_app.py --unwire</code>: вернуть исходные команды мостов.</li>
+    </ul></div>`;
+  pane().dataset.view = "how";
+}
+
+// ---------- dossier
+function openDossier(path, html, refresh){
+  $("#dpath").textContent = path; $("#dbody").innerHTML = html;
+  $("#app").classList.remove("closed"); sel = {refresh}; requestAnimationFrame(resize);
+}
+$("#close").onclick = () => { $("#app").classList.add("closed"); sel = null; requestAnimationFrame(resize); };
+addEventListener("keydown", e => { if (e.key === "Escape") $("#close").click(); });
+
+function callList(cs, empty){
+  if (!cs.length) return `<div class="empty">${empty}</div>`;
+  return `<div class="list">${cs.slice(0,15).map(c => `<button data-call="${esc(c.id)}"><span class="dot ${c.end==null?"run":c.error?"bad":"ok"}"></span>${esc(c.tool)}<span class="muted">${esc(c.model||"")}</span><span class="r">${fmtTime(c.start)} · ${fmtMs(c.ms)}</span></button>`).join("")}</div>`;
+}
+function bindCalls(){ $("#dbody").querySelectorAll("[data-call]").forEach(b => b.onclick = () => openCall(b.dataset.call)); }
+function procList(list){
+  if (!list.length) return `<div class="empty">Не запущено.</div>`;
+  return `<div class="list">${list.map(p => `<button data-pid="${p.pid}"><span class="dot ok"></span>${esc(p.name)} <span class="faint">${p.pid}</span><span class="r">${fmtMB(p.rss||0)} · с ${fmtDate(p.start)}</span></button>`).join("")}</div>`;
+}
+function bindProcs(){ $("#dbody").querySelectorAll("[data-pid]").forEach(b => b.onclick = () => openProc(+b.dataset.pid)); }
+
+function openClient(c){
+  const draw = () => {
+    const ps = procs(c === "antigravity" ? "antigravity" : "claude");
+    const srv = servers().filter(s => s.client === c);
+    const rules = CFG.rules.filter(r => r.client === c || r.client === "both");
+    const cs = calls().filter(x => x.client === c);
+    const main = ps.filter(p => !ps.some(q => q.pid === p.ppid));
+    $("#dbody").innerHTML = `<h2>${CLIENT[c].n}</h2>
+      <div class="meta">${ps.length ? `<span class="tag ok">запущен</span><span class="tag">${ps.length} процессов · ${fmtMB(ps.reduce((a,p)=>a+(p.rss||0),0))}</span>` : `<span class="tag">не запущен</span>`}</div>
+      <div class="blk"><h5>Главные процессы</h5>${procList(main)}${ps.length > main.length ? `<p class="faint" style="margin-top:6px">и ещё ${ps.length-main.length} вспомогательных процессов</p>` : ""}</div>
+      <div class="blk"><h5>Подключённые MCP-серверы</h5>${srv.length ? `<div class="list">${srv.map(s => `<button data-srv="${esc(s.name)}"><span class="dot ${s.tapped?"ok":s.tappable?"bad":""}"></span>${esc(s.name)}<span class="r">${s.tapped?"журнал есть":s.tappable?"без журнала":"вне журнала"}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
+      <div class="blk"><h5>Правила, которые он читает</h5>${rules.length ? `<div class="list">${rules.map((r) => `<button data-rule="${esc(r.path)}">${esc(base(r.path))}<span class="r">${esc(r.kind)}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
+      <div class="blk"><h5>Его вызовы мостов</h5>${callList(cs, "Вызовов не записано.")}</div>`;
+    bindCalls(); bindProcs();
+    $("#dbody").querySelectorAll("[data-srv]").forEach(b => b.onclick = () => openServer(b.dataset.srv));
+    $("#dbody").querySelectorAll("[data-rule]").forEach(b => b.onclick = () => openRule(CFG.rules.find(r => r.path === b.dataset.rule)));
+  };
+  openDossier("клиент", "", draw); draw();
+}
+
+function openServer(name){
+  const draw = () => {
+    const entries = servers().filter(s => s.name === name);
+    const s = entries[0]; if (!s) return;
+    const b = bridgeOf(s) || {};
+    const live = procs("tap").concat(procs("bridge")).filter(p => p.cmd.includes(name) || (s.file && p.cmd.includes(base(s.file))));
+    const cs = calls().filter(c => c.server === name);
+    $("#dbody").innerHTML = `<h2>${esc(name)}</h2>
+      <div class="meta">${entries.map(e => `<span class="tag ${e.tapped?"ok":e.tappable?"bad":""}">${esc(CLIENT[e.client]?.n||e.client)}: ${e.tapped?"журнал есть":e.tappable?"без журнала":"вне журнала"}</span>`).join("")}</div>
+      ${b.error ? `<div class="banner" style="margin:0">Не удалось прочитать мост: ${esc(b.error)}</div>` : ""}
+      ${b.hardcoded_keys ? `<div class="banner" style="margin:0">В файле моста прямо в коде записано ключей: ${b.hardcoded_keys}.</div>` : ""}
+      <div class="blk"><h5>Запуск</h5><dl class="kv"><dt>Команда</dt><dd>${esc(s.url || s.command)}</dd><dt>Аргументы</dt><dd>${esc(s.args.join(" "))}</dd>
+        <dt>Переменные</dt><dd>${esc(s.env_keys.join(", ") || "нет")}</dd>${s.file?`<dt>Файл</dt><dd>${esc(s.file)}</dd><dt>Изменён</dt><dd>${fmtDate(b.mtime)}</dd>`:""}
+        ${b.default_model?`<dt>Модель по умолч.</dt><dd>${esc(b.default_model)}</dd>`:""}${b.claude_model?`<dt>Модель Claude</dt><dd>${esc(b.claude_model)}</dd><dt>Claude CLI</dt><dd>${esc(b.claude_path)}</dd>`:""}</dl></div>
+      <div class="blk"><h5>Инструменты</h5>${(b.tools||[]).length ? `<div class="list">${b.tools.map(t => `<button data-tool="${esc(t.name)}"><span>${esc(t.name)}</span><span class="r">${calls().filter(c=>c.server===name&&c.tool===t.name).length} выз.</span></button>`).join("")}</div>` : `<div class="empty">Список недоступен.</div>`}</div>
+      <div class="blk"><h5>Процессы сейчас</h5>${procList(live)}</div>
+      <div class="blk"><h5>Последние вызовы</h5>${callList(cs, s.tapped ? "Вызовов пока не было." : "Журнал для этого моста не подключён.")}</div>`;
+    bindCalls(); bindProcs();
+    $("#dbody").querySelectorAll("[data-tool]").forEach(x => x.onclick = () => openTool(name, x.dataset.tool));
+  };
+  openDossier("MCP-сервер", "", draw); draw();
+}
+
+function openTool(server, tool){
+  const draw = () => {
+    const s = servers().find(x => x.name === server); const b = s ? bridgeOf(s) || {} : {};
+    const t = (b.tools||[]).find(x => x.name === tool) || {};
+    const cs = calls().filter(c => c.server === server && c.tool === tool);
+    const done = cs.filter(c => c.ms != null), errs = cs.filter(c => c.error).length;
+    $("#dbody").innerHTML = `<h2>${esc(tool)}</h2><div class="meta"><span class="tag">${esc(server)}</span></div>
+      <div class="blk"><h5>Описание из моста</h5><p>${esc(t.description || "нет описания")}</p></div>
+      <div class="blk"><h5>Статистика по журналу</h5><dl class="kv"><dt>Вызовов</dt><dd>${cs.length}</dd><dt>С ошибкой</dt><dd>${errs}</dd>
+        <dt>Среднее время</dt><dd>${done.length ? fmtMs(Math.round(done.reduce((a,c)=>a+c.ms,0)/done.length)) : "—"}</dd><dt>Последний</dt><dd>${cs[0] ? fmtAgo(cs[0].start) : "—"}</dd></dl></div>
+      <div class="blk"><h5>Вызовы</h5>${callList(cs, "Вызовов не записано.")}</div>`;
+    bindCalls();
+  };
+  openDossier("инструмент", "", draw); draw();
+}
+
+function openModel(m, isClaude){
+  const draw = () => {
+    const provs = Object.values(CFG.bridges).flatMap(b => (b.providers||[]).filter(p => p.models.includes(m)));
+    const cs = isClaude ? calls().filter(c => c.server === "claude-bridge") : calls().filter(c => c.model === m);
+    $("#dbody").innerHTML = `<h2>${esc(m)}</h2>
+      <div class="blk"><h5>Где доступна</h5>${isClaude ? `<p>Запускается мостом claude-bridge через Claude Code CLI на этом компьютере, по твоей подписке Claude.</p>` : provs.length ? `<div class="list">${provs.map(p => `<div class="row">${esc(p.name)}<span class="r">приоритет ${esc(p.priority)}</span></div>`).join("")}</div>` : `<div class="empty">Не найдена в пулах multillm-bridge.</div>`}</div>
+      <div class="blk"><h5>Вызовы с этой моделью</h5>${callList(cs, "Не вызывалась.")}</div>`;
+    bindCalls();
+  };
+  openDossier("модель", "", draw); draw();
+}
+
+function openCall(id){
+  const draw = () => {
+    const c = calls().find(x => x.id === id); if (!c) return;
+    $("#dbody").innerHTML = `<h2>${esc(c.tool)}</h2>
+      <div class="meta">${c.end==null?`<span class="tag warn">идёт ${fmtAgo(c.start).replace(" назад","")}</span>`:c.error?`<span class="tag bad">ошибка</span>`:`<span class="tag ok">готово</span>`}<span class="tag">${esc(c.server)}</span>${c.model?`<span class="tag">${esc(c.model)}</span>`:""}</div>
+      <div class="blk"><h5>Кто и когда</h5><dl class="kv"><dt>Вызвал</dt><dd>${esc(CLIENT[c.client]?.n || c.client)}${c.client_info?` <span class="faint">(${esc(c.client_info)})</span>`:""}</dd>
+        <dt>Начало</dt><dd>${new Date(c.start*1000).toLocaleString("ru-RU")}</dd><dt>Длилось</dt><dd>${fmtMs(c.ms)}</dd>
+        ${c.provider?`<dt>Пул</dt><dd>${esc(c.provider)}</dd>`:""}${c.chars!=null?`<dt>Ответ</dt><dd>${c.chars} символов</dd>`:""}</dl></div>
+      <div class="blk"><h5>Параметры запроса</h5><pre class="box">${esc(JSON.stringify(c.args, null, 2))}</pre></div>
+      <div class="blk"><h5>Начало ответа</h5>${c.preview!=null?`<pre class="box">${esc(c.preview)}</pre>`:`<div class="empty">Ответа ещё нет.</div>`}</div>
+      <div class="blk"><h5>Сообщения моста</h5>${c.logs.length?`<pre class="box">${c.logs.map(l => esc(fmtTime(l.ts)+"  "+l.line)).join("\n")}</pre>`:`<div class="empty">Нет.</div>`}</div>`;
+  };
+  openDossier("вызов", "", draw); draw();
+}
+
+function openProc(pid){
+  const draw = () => {
+    const p = procs().find(x => x.pid === pid);
+    if (!p) { $("#dbody").innerHTML = `<h2>PID ${pid}</h2><div class="empty">Процесс завершился.</div>`; return; }
+    $("#dbody").innerHTML = `<h2>${esc(p.label)}</h2><div class="meta"><span class="tag ok">работает</span><span class="tag">PID ${p.pid}</span></div>
+      <dl class="kv"><dt>Имя</dt><dd>${esc(p.name)}</dd><dt>Запущен</dt><dd>${p.start?new Date(p.start*1000).toLocaleString("ru-RU"):"—"}</dd>
+      <dt>Память</dt><dd>${fmtMB(p.rss||0)}</dd><dt>CPU</dt><dd>${p.cpu==null?"—":p.cpu.toFixed(1)+"%"}</dd>
+      <dt>Родитель</dt><dd>${esc(p.parent_name||"—")} (${p.ppid})</dd></dl>
+      <div class="blk"><h5>Командная строка</h5><pre class="box">${esc(p.cmd)}</pre></div>`;
+  };
+  openDossier("процесс", "", draw); draw();
+}
+
+async function openRule(r){
+  if (!r) return;
+  openDossier("правило", `<h2>${esc(base(r.path))}</h2><div class="meta"><span class="tag">${esc(r.kind)}</span><span class="tag">изменён ${fmtDate(r.mtime)}</span></div><div class="faint" style="word-break:break-all">${esc(r.path)}</div><pre class="box" id="ruleText">загрузка…</pre>`);
+  try { const d = await getJSON("/api/file?path="+encodeURIComponent(r.path)); $("#ruleText").textContent = d.text; }
+  catch(e){ $("#ruleText").textContent = "Не удалось прочитать файл."; }
+}
+function openRules(){
+  openDossier("правила", `<h2>Правила и навыки</h2><p class="muted" style="margin:0">Это общий «мозг» связки: тексты, по которым Antigravity и Claude Code решают, когда и кого звать.</p>
+    <div class="list">${CFG.rules.map(r => `<button data-rule="${esc(r.path)}">${esc(base(r.path))}<span class="r">${esc(r.kind)}</span></button>`).join("")}</div>`);
+  $("#dbody").querySelectorAll("[data-rule]").forEach(b => b.onclick = () => openRule(CFG.rules.find(r => r.path === b.dataset.rule)));
+}
+
+// ---------- map
+const cv = $("#cv"), ctx = cv.getContext("2d");
+let W = 0, H = 0, N = [], E = [], hover = null, rot = 0;
+const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+function resize(){
+  const r = cv.getBoundingClientRect(); if (!r.width) return;
+  const d = Math.min(2, devicePixelRatio || 1); W = r.width; H = r.height;
+  cv.width = W*d; cv.height = H*d; ctx.setTransform(d,0,0,d,0,0); layout();
+}
+new ResizeObserver(resize).observe($("#stage"));
+
+function buildGraph(){
+  const old = new Map(N.map(n => [n.id, n]));
+  N = []; E = [];
+  const add = (id, o) => { const prev = old.get(id); const n = Object.assign({id, x: prev?.x, y: prev?.y, heat: prev?.heat || 0}, o); N.push(n); return n; };
+  const edge = (a, b, o={}) => E.push(Object.assign({a, b}, o));
+  add("brain", {type:"brain"});
+  const clients = [...new Set(["antigravity","claude-code", ...servers().map(s => s.client)])];
+  clients.forEach(c => { add("c:"+c, {type:"client", key:c, label:CLIENT[c]?.n || c, color:CLIENT[c]?.c || "#8591bb"}); edge("brain","c:"+c,{kind:"rules"}); });
+  const names = [...new Set(servers().map(s => s.name))];
+  names.forEach(name => {
+    const entries = servers().filter(s => s.name === name);
+    add("s:"+name, {type:"server", key:name, label:name, color:"#b36bff"});
+    entries.forEach(s => edge("c:"+s.client, "s:"+name, {tapped:s.tapped, tappable:s.tappable}));
+    const b = bridgeOf(entries[0]) || {};
+    (b.tools || []).forEach(t => { add("t:"+name+":"+t.name, {type:"tool", key:t.name, server:name, label:t.name, color:"#3ddc97"}); edge("s:"+name, "t:"+name+":"+t.name); });
+    if (b.claude_model) { add("m:claude:"+b.claude_model, {type:"model", key:"Claude "+b.claude_model, label:"Claude · "+b.claude_model, color:"#e8875a", claude:true});
+      (b.tools||[]).forEach(t => edge("t:"+name+":"+t.name, "m:claude:"+b.claude_model, {faint:true})); }
+  });
+  updateGraphState(); layout();
+}
+function updateGraphState(){
+  if (!CFG || !ST) return;
+  // models: default ones + every model that actually appears in the log
+  const want = new Map();
+  Object.values(CFG.bridges).forEach(b => { if (b.default_model) want.set(b.default_model, null); });
+  calls().forEach(c => { if (c.model && c.server !== "claude-bridge") want.set(c.model, `t:${c.server}:${c.tool}`); });
+  const have = new Set(N.filter(n => n.type === "model" && !n.claude).map(n => n.key));
+  let changed = false;
+  want.forEach((tool, m) => { if (!have.has(m)) { N.push({id:"m:"+m, type:"model", key:m, label:m, color:"#ffb547", heat:0}); changed = true; } });
+  E = E.filter(e => !e.auto);
+  want.forEach((tool, m) => {
+    const srv = servers().find(s => bridgeOf(s)?.default_model === m || (bridgeOf(s)?.providers||[]).some(p => p.models.includes(m)));
+    const from = tool && N.some(n => n.id === tool) ? tool : srv ? "s:"+srv.name : null;
+    if (from) E.push({a:from, b:"m:"+m, auto:true, faint:!tool});
+  });
+  const t = Date.now()/1000;
+  N.forEach(n => {
+    n.running = false; n.count = 0; n.err = 0;
+    if (n.type === "client") n.alive = clientRunning(n.key);
+    if (n.type === "server") n.alive = procs("tap").concat(procs("bridge")).some(p => p.cmd.includes(n.key) || p.cmd.includes(n.key.replace("-","_")));
+  });
+  const byId = new Map(N.map(n => [n.id, n]));
+  calls().forEach(c => {
+    const ids = ["c:"+c.client, "s:"+c.server, `t:${c.server}:${c.tool}`, c.model ? "m:"+c.model : null];
+    if (c.server === "claude-bridge") N.filter(n => n.claude).forEach(n => ids.push(n.id));
+    ids.forEach(id => { const n = id && byId.get(id); if (!n) return; n.count++; if (c.error) n.err++;
+      if (c.end == null) n.running = true; if (t - c.start < 8) n.heat = 1; });
+  });
+  if (changed) layout();
+}
+function layout(){
+  if (!W) return;
+  // flow from left to right: rules -> clients -> MCP servers -> tools -> models
+  const col = f => 40 + (W - 260) * f, top = 30, h = H - 70;
+  const place = (list, x) => list.forEach((n, i) => { n.tx = x; n.ty = top + h * (i + 1) / (list.length + 1); if (n.x == null) { n.x = n.tx; n.y = n.ty; } });
+  const brain = N.find(n => n.type === "brain"); if (brain) place([brain], col(0.04) + 40);
+  const clients = N.filter(n => n.type === "client");
+  const srv = N.filter(n => n.type === "server");
+  const tools = srv.flatMap(s => N.filter(n => n.type === "tool" && n.server === s.key));
+  const order = new Map(tools.map((t, i) => [t.id, i]));
+  srv.forEach((s, i) => order.set(s.id, i - 0.5));
+  const models = N.filter(n => n.type === "model").sort((a, b) => {
+    const ka = Math.min(...E.filter(e => e.b === a.id).map(e => order.get(e.a) ?? 99), 99);
+    const kb = Math.min(...E.filter(e => e.b === b.id).map(e => order.get(e.a) ?? 99), 99);
+    return ka - kb; });
+  place(clients, col(0.26)); place(srv, col(0.48)); place(tools, col(0.70)); place(models, col(0.90));
+}
+const P = Array.from({length: 320}, () => { const u = Math.random()*2-1, t = Math.random()*Math.PI*2, r = Math.cbrt(Math.random()), s = Math.sqrt(1-u*u); return {x:s*Math.cos(t)*r, y:u*r, z:s*Math.sin(t)*r}; });
+function hexA(h, a){ const n = parseInt(h.slice(1), 16); return `rgba(${n>>16},${n>>8&255},${n&255},${a})`; }
+function draw(now){
+  requestAnimationFrame(draw);
+  if (view !== "map" || !W || !N.length) return;
+  if (!reduce) rot += 0.003;
+  const k = reduce ? 1 : 0.15;
+  N.forEach(n => { if (n.tx == null) return; n.x += (n.tx - n.x)*k; n.y += (n.ty - n.y)*k; n.heat = Math.max(0, (n.heat||0) - 0.004); });
+  ctx.clearRect(0, 0, W, H);
+  const byId = new Map(N.map(n => [n.id, n]));
+  const brain = byId.get("brain"), br = Math.min(W * 0.07, H * 0.16);
+  // brain: one particle per stored rule line would be fake precision; density only reflects activity today
+  const busy = N.some(n => n.running), cs = Math.cos(rot), sn = Math.sin(rot), pts = [];
+  for (const p of P) { const x = p.x*cs - p.z*sn, z = p.x*sn + p.z*cs; pts.push({x: brain.x + x*br, y: brain.y + p.y*br, z}); }
+  ctx.lineWidth = .5;
+  for (let i = 0; i < pts.length; i += 2) for (let j = i+1; j < Math.min(pts.length, i+30); j++) {
+    const a = pts[i], b = pts[j], dx = a.x-b.x, dy = a.y-b.y;
+    if (dx*dx + dy*dy < br*br*0.05) { ctx.strokeStyle = `rgba(255,110,90,${busy ? .3 : .14})`; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  }
+  for (const p of pts) { const s = .8 + (p.z+1)*.7; ctx.fillStyle = `rgba(255,${130+p.z*40|0},100,${.4+(p.z+1)*.25})`; ctx.fillRect(p.x-s/2, p.y-s/2, s, s); }
+  // edges
+  for (const e of E) {
+    const a = byId.get(e.a), b = byId.get(e.b); if (!a || !b) continue;
+    const live = a.running && b.running;
+    ctx.setLineDash(e.kind === "rules" || e.faint ? [2,5] : (e.tappable && !e.tapped) ? [6,5] : []);
+    ctx.strokeStyle = live ? "rgba(255,181,71,.9)" : e.kind === "rules" ? "rgba(255,110,90,.28)" : (e.tappable && !e.tapped) ? "rgba(255,90,110,.45)" : `rgba(133,145,187,${e.faint ? .2 : .32})`;
+    ctx.lineWidth = live ? 1.6 : 1;
+    const mx = (a.x + b.x) / 2;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.bezierCurveTo(mx, a.y, mx, b.y, b.x, b.y); ctx.stroke();
+    if (live && !reduce) { const f = (now/900) % 1, u = 1 - f;
+      const px = u*u*u*a.x + 3*u*u*f*mx + 3*u*f*f*mx + f*f*f*b.x, py = u*u*u*a.y + 3*u*u*f*a.y + 3*u*f*f*b.y + f*f*f*b.y;
+      ctx.setLineDash([]); ctx.fillStyle = "#ffb547"; ctx.beginPath(); ctx.arc(px, py, 3, 0, 7); ctx.fill(); }
+  }
+  ctx.setLineDash([]);
+  // nodes
+  ctx.textAlign = "center"; ctx.textBaseline = "top";
+  for (const n of N) {
+    if (n.type === "brain") {
+      ctx.font = '600 12px "Bahnschrift", "Segoe UI", sans-serif'; ctx.fillStyle = "#d9e1ff";
+      ctx.textAlign = "center"; ctx.fillText("ПРАВИЛА", n.x, n.y + br + 8);
+      ctx.font = '10px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#8591bb";
+      ctx.fillText((CFG?.rules.length ?? 0) + " файлов", n.x, n.y + br + 24); continue;
+    }
+    const r = n.type === "client" ? 22 : n.type === "server" ? 17 : n.type === "tool" ? 10 : 7;
+    const hv = hover === n, on = n.running;
+    const dim = (n.type === "client" || n.type === "server") && !n.alive;
+    if (on || n.heat > 0) { ctx.fillStyle = hexA("#ffb547", on ? .18 + .1*Math.sin(now/200) : n.heat*.25); ctx.beginPath(); ctx.arc(n.x, n.y, r+10, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = dim ? .55 : 1;
+    ctx.fillStyle = "#0c1124"; ctx.strokeStyle = hv ? "#ffffff" : on ? "#ffb547" : n.color; ctx.lineWidth = hv || on ? 2 : 1.4;
+    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.stroke();
+    if (n.type === "client" || n.type === "server") {
+      ctx.fillStyle = n.alive ? "#3ddc97" : "#5b6488"; ctx.beginPath(); ctx.arc(n.x + r*.72, n.y - r*.72, 4, 0, 7); ctx.fill();
+      ctx.strokeStyle = hexA(n.color, .25); ctx.beginPath(); ctx.arc(n.x, n.y, r+5, 0, 7); ctx.stroke();
+    }
+    if (n.err) { ctx.fillStyle = "#ff5a6e"; ctx.beginPath(); ctx.arc(n.x - r*.72, n.y - r*.72, 3, 0, 7); ctx.fill(); }
+    ctx.globalAlpha = 1;
+    const big = n.type === "client" || n.type === "server";
+    const sub = n.type === "client" ? (n.alive ? "запущен" : "не запущен") : n.type === "server" ? (n.alive ? "на связи" : "ждёт клиента")
+      : n.count ? n.count + " выз." + (n.err ? ", ошибок " + n.err : "") : n.type === "tool" ? "не вызывался" : "";
+    if (big) {
+      ctx.textAlign = "center";
+      ctx.font = '600 13px "Bahnschrift", "Segoe UI", sans-serif'; ctx.fillStyle = n.color;
+      ctx.fillText(n.label.toUpperCase(), n.x, n.y + r + 8);
+      ctx.font = '10px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#8591bb";
+      ctx.fillText(sub, n.x, n.y + r + 24);
+    } else {
+      ctx.textAlign = "left";
+      ctx.font = '12px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#d9e1ff";
+      ctx.fillText(n.label, n.x + r + 8, n.y - 9);
+      ctx.font = '10px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#8591bb";
+      ctx.fillText(sub, n.x + r + 8, n.y + 5);
+    }
+  }
+}
+requestAnimationFrame(draw);
+function hit(e){
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = null, bd = 1e9;
+  for (const n of N) { const rr = n.type === "brain" ? Math.min(W*0.07, H*0.16) : n.type === "client" ? 26 : n.type === "server" ? 22 : 16;
+    const d = Math.hypot(n.x - x, n.y - y); if (d < rr && d < bd) { best = n; bd = d; } }
+  return best;
+}
+cv.addEventListener("mousemove", e => { hover = hit(e); cv.style.cursor = hover ? "pointer" : "default"; });
+cv.addEventListener("click", e => {
+  const n = hit(e); if (!n) return;
+  if (n.type === "brain") openRules(); else if (n.type === "client") openClient(n.key);
+  else if (n.type === "server") openServer(n.key); else if (n.type === "tool") openTool(n.server, n.key);
+  else if (n.type === "model") openModel(n.key, n.claude);
+});
+
+// ---------- boot
+setView("map");
+loadConfig(false).then(() => { renderBanners(); poll(); }).catch(() => { failed = true; renderLive(); setTimeout(() => location.reload(), 3000); });
+setInterval(() => loadConfig(false).then(renderBanners).catch(() => {}), 60000);
+</script>
+</body>
+</html>
