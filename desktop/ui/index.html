@@ -5,13 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council Engine</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23090B10'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='%2300F5A0' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='2.5' fill='%2300D2FF'/%3E%3C/svg%3E">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
 <style>
 /* Layout: Dark Precision HUD. Topology bar on top, three columns below (models | cognitive feed | live inspector),
    the command matrix floats over the bottom of the feed. Accents (lime, cyan, amber) mark state only;
-   model families carry their own muted badge hues. Offline fallback: the two typefaces the app ships in /fonts. */
+   model families carry their own muted badge hues. Fallback: the v3 typefaces, also shipped in /fonts. */
+/* Inter and JetBrains Mono ship with the app (SIL OFL), so the page makes no requests outside this computer. */
+@font-face{font-family:"Inter";font-display:swap;font-weight:100 900;src:url(/fonts/inter-cyrillic-wght-normal.woff2) format("woff2");unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:"Inter";font-display:swap;font-weight:100 900;src:url(/fonts/inter-latin-wght-normal.woff2) format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-display:swap;font-weight:100 800;src:url(/fonts/jetbrains-mono-cyrillic-wght-normal.woff2) format("woff2");unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
+@font-face{font-family:"JetBrains Mono";font-display:swap;font-weight:100 800;src:url(/fonts/jetbrains-mono-latin-wght-normal.woff2) format("woff2")}
 @font-face{font-family:"CE Sans";font-display:swap;font-weight:100 900;src:url(/fonts/geologica-cyrillic-full-normal.woff2) format("woff2");unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
 @font-face{font-family:"CE Sans";font-display:swap;font-weight:100 900;src:url(/fonts/geologica-latin-full-normal.woff2) format("woff2")}
 @font-face{font-family:"CE Mono";font-display:swap;font-weight:100 800;src:url(/fonts/martian-mono-cyrillic-standard-normal.woff2) format("woff2");unicode-range:U+0301,U+0400-045F,U+0490-0491,U+04B0-04B1,U+2116}
