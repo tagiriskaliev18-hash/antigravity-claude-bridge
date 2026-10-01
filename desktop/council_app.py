@@ -23,6 +23,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import socketserver
 import subprocess
 import sys
@@ -33,7 +34,7 @@ import urllib.request
 import webbrowser
 
 APP_NAME = "council-engine"
-APP_VERSION = "1.0.0"
+APP_VERSION = "2.0.0"
 PORT = int(os.environ.get("COUNCIL_PORT", "47615"))
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 TAP = os.path.join(APP_DIR, "council_tap.py")
@@ -43,6 +44,7 @@ COUNCIL_HOME = os.environ.get("COUNCIL_HOME") or os.path.join(HOME, ".council")
 ACTIVITY_DIR = os.path.join(COUNCIL_HOME, "activity")
 NO_WINDOW = 0x08000000 if IS_WIN else 0
 TAPPABLE = ("claude-bridge", "multillm-bridge")
+KNOWN_SERVER_FILES = {}  # lower-cased script path -> MCP server name, filled from the configs
 KEEP_DAYS = 30
 
 
@@ -139,6 +141,9 @@ def collect_servers():
                 d = describe_server(name, entry or {}, "claude-code")
                 d["config"] = cpath + f" (project {proj})"
                 out.append(d)
+    for s in out:
+        if s.get("file"):
+            KNOWN_SERVER_FILES[s["file"].lower().replace("\\", "/")] = s["name"]
     return out
 
 
@@ -190,7 +195,18 @@ try:
     out["default_model"] = getattr(m, "DEFAULT_MODEL", None)
     out["claude_model"] = getattr(m, "MODEL", None)
     out["claude_path"] = getattr(m, "CLAUDE_PATH", None)
-    out["tools"] = [{"name": t.get("name"), "description": t.get("description")} for t in getattr(m, "TOOLS", [])]
+    out["tools"] = [{"name": t.get("name"), "description": t.get("description"),
+                     "params": sorted(((t.get("inputSchema") or {}).get("properties") or {}).keys())}
+                    for t in getattr(m, "TOOLS", [])]
+    if hasattr(m, "COUNCIL_MEMBERS"):
+        out["council"] = {"members": list(m.COUNCIL_MEMBERS), "judge": getattr(m, "COUNCIL_JUDGE", None),
+                          "roles": list(getattr(m, "ROLE_HINTS", []) or []),
+                          "cli_member": getattr(m, "CLAUDE_CLI_MEMBER", None)}
+    if hasattr(m, "handle_list_models"):
+        try:
+            out["models_text"] = m.handle_list_models()
+        except Exception:
+            pass
 except Exception as e:
     out["error"] = str(e)
 print(json.dumps(out, ensure_ascii=False))
@@ -222,6 +238,179 @@ def probe_bridge(server, env_extra):
     st = os.stat(path)
     data.update({"file": path, "mtime": st.st_mtime, "size": st.st_size})
     return data
+
+
+SECRET_KEY = re.compile(r"(key|token|secret|password|authorization|bearer)", re.I)
+
+
+def mask(value, key=""):
+    if SECRET_KEY.search(key or "") and isinstance(value, str):
+        return "***" if value else ""
+    if isinstance(value, dict):
+        return {k: mask(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [mask(v, key) for v in value]
+    if isinstance(value, str) and re.match(r"^(sk-|Bearer )", value):
+        return "***"
+    return value
+
+
+SYSTEM_CACHE = {}
+SYSTEM_JSON = ("providers.json", "agents.json", "token_usage.json", "models.json", "roles.json")
+
+
+def cached_read(path, reader):
+    """Re-read a file only when its mtime or size changes."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        SYSTEM_CACHE.pop(path, None)
+        return None
+    key = (st.st_mtime, st.st_size)
+    hit = SYSTEM_CACHE.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    val = reader(path)
+    SYSTEM_CACHE[path] = (key, val)
+    return val
+
+
+def read_masked_json(path):
+    data = read_json(path)
+    return {"name": os.path.basename(path), "path": path, "mtime": os.path.getmtime(path),
+            "data": mask(data) if data is not None else None,
+            "error": None if data is not None else "не удалось прочитать JSON"}
+
+
+def read_env_names(path):
+    try:
+        names = [l.split("=", 1)[0].strip() for l in open(path, encoding="utf-8", errors="replace")
+                 if "=" in l and not l.lstrip().startswith("#")]
+    except OSError:
+        names = []
+    return {"name": ".env", "path": path, "mtime": os.path.getmtime(path), "data": {"variables": names}}
+
+
+def read_skill(path):
+    """Skill name, title and one-line description from a markdown skill file."""
+    base = os.path.basename(path)
+    name = os.path.basename(os.path.dirname(path)) if base.upper() == "SKILL.MD" else os.path.splitext(base)[0]
+    title, desc = None, None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            lines = fh.read(20000).splitlines()
+    except OSError:
+        lines = []
+    for line in lines[:80]:
+        t = line.strip()
+        m = re.match(r"(name|title|description)\s*:\s*(.+)", t, re.I)
+        if m and m.group(1).lower() == "description" and not desc:
+            desc = m.group(2).strip().strip("\"'")
+        elif m and not title:
+            title = m.group(2).strip().strip("\"'")
+        elif t.startswith("#") and not title:
+            title = t.lstrip("#").strip()
+        elif t and not t.startswith(("#", "---", "|", "```")) and title and not desc and ":" not in t[:20]:
+            desc = t
+        if title and desc:
+            break
+    return {"name": name, "title": title, "description": (desc or "")[:300], "path": path,
+            "size": os.path.getsize(path), "mtime": os.path.getmtime(path)}
+
+
+DIRS_CACHE = {"ts": 0, "dirs": []}
+
+
+def bridge_dirs():
+    # ~/.claude.json can be large, so the folder list is refreshed every 30 s, not on every poll
+    if now() - DIRS_CACHE["ts"] < 30:
+        return DIRS_CACHE["dirs"]
+    dirs = []
+    for s in collect_servers():
+        f = s.get("file")
+        if f and os.path.isfile(f) and os.path.dirname(f) not in dirs:
+            dirs.append(os.path.dirname(f))
+    DIRS_CACHE.update(ts=now(), dirs=dirs)
+    return dirs
+
+
+def read_system():
+    """Model pools, roles, skills and the token ledger that live next to the bridges (secrets masked)."""
+    files, skills = [], []
+    for folder in bridge_dirs():
+        for name in SYSTEM_JSON:
+            v = cached_read(os.path.join(folder, name), read_masked_json)
+            if v:
+                files.append(v)
+        v = cached_read(os.path.join(folder, ".env"), read_env_names)
+        if v:
+            files.append(v)
+        for p in sorted(glob.glob(os.path.join(folder, "skills", "*.md")) +
+                        glob.glob(os.path.join(folder, "skills", "*", "SKILL.md"))):
+            v = cached_read(p, read_skill)
+            if v:
+                skills.append(v)
+    return {"files": files, "skills": skills}
+
+
+def parse_ts(v):
+    """Epoch seconds from a number (s or ms) or an ISO-like string; None if unknown."""
+    if isinstance(v, (int, float)):
+        return v / 1000.0 if v > 1e11 else float(v)
+    if not isinstance(v, str) or not v.strip():
+        return None
+    t = v.strip().replace("Z", "+00:00")
+    try:
+        import datetime
+        dt = datetime.datetime.fromisoformat(t)
+        return dt.timestamp() if dt.tzinfo else time.mktime(dt.timetuple()) + dt.microsecond / 1e6
+    except ValueError:
+        return None
+
+
+def ledger_matches(system, calls):
+    """Attach token_usage.json history entries to the logged calls they happened in (same provider, inside the call)."""
+    out = {}
+    for f in system["files"]:
+        if f["name"] != "token_usage.json" or not isinstance(f.get("data"), dict):
+            continue
+        for e in f["data"].get("history") or []:
+            if not isinstance(e, dict):
+                continue
+            ts = parse_ts(e.get("timestamp") or e.get("time") or e.get("ts"))
+            if ts is None:
+                continue
+            # the ledger stores local time with one-second precision; prefer a call that used the same pool
+            inside = [c for c in calls if c["server"] == "claude-bridge"
+                      and c["start"] - 2 <= ts <= (c["end"] or now()) + 5]
+            same = [c for c in inside if e.get("provider") in
+                    ({r.get("provider") for r in c.get("route") or []} | {c.get("provider")})]
+            pick = (same or inside or [None])[0]
+            if pick:
+                out.setdefault(pick["id"], []).append(e)
+    return out
+
+
+def tier_rules(rules):
+    """Lines that define the cost tiers in GEMINI.md, quoted as written."""
+    tiers = []
+    for r in rules:
+        if not r["path"].lower().endswith("gemini.md"):
+            continue
+        try:
+            text = open(r["path"], encoding="utf-8", errors="replace").read()
+        except OSError:
+            continue
+        for line in text.splitlines():
+            m = re.match(r"\s*-\s*\*\*(Tier\s*\d[^*]*)\*\*:?\s*(.*)", line)
+            if m:
+                tiers.append({"name": m.group(1).strip(), "text": m.group(2).strip(), "source": r["path"]})
+            m = re.match(r"\s*-\s*\*\*(Multi-LLM Council[^*]*)\*\*:?\s*(.*)", line)
+            if m:
+                tiers.append({"name": m.group(1).strip(), "text": m.group(2).strip(), "source": r["path"]})
+        if tiers:
+            break
+    return tiers
 
 
 # ---------------------------------------------------------------- processes
@@ -288,9 +477,14 @@ def classify(p):
         m = re.search(r"--server\s+(\S+)", p["cmd"] or "")
         return "tap", "Журнал вызовов для %s" % (m.group(1) if m else "моста")
     if "claude_bridge.py" in cmd:
-        return "bridge", "claude-bridge (мост к Claude Code)"
+        return "bridge", "claude-bridge (ai-bridge: модели, роли, консилиум)"
     if "multillm_bridge.py" in cmd:
         return "bridge", "multillm-bridge (совет моделей)"
+    for f, server in list(KNOWN_SERVER_FILES.items()):
+        if f in cmd:
+            return "bridge", "%s (MCP-сервер из конфига)" % server
+    if "newgenmmllm" in cmd and ("uvicorn" in cmd or "main.py" in cmd or "gateway" in cmd):
+        return "gateway", "AI Duo шлюз (NewGenMMLLM)"
     if "antigravity" in name or "/antigravity/" in cmd or "antigravity.exe" in cmd:
         return "antigravity", "Antigravity"
     if name in ("claude.exe", "claude") or "@anthropic-ai/claude-code" in cmd or "/claude-code/" in cmd:
@@ -356,6 +550,24 @@ class ProcessWatcher(threading.Thread):
 
 # ---------------------------------------------------------------- activity log
 
+USAGE_NUM = {k: re.compile(r"\b%s(?:_tokens)?['\"]?\s*[:=]\s*(\d+)" % k) for k in ("prompt", "completion", "total")}
+
+
+def parse_usage(line):
+    """Token usage printed by a bridge, e.g. 'Usage deepseek-v4-pro @ pool: prompt=12 completion=40 total=52'."""
+    if "prompt" not in line or not re.search(r"usage|tokens", line, re.I):
+        return None
+    vals = {k: (int(m.group(1)) if m else None) for k, rx in USAGE_NUM.items() for m in [rx.search(line)]}
+    if vals["prompt"] is None and vals["completion"] is None and vals["total"] is None:
+        return None
+    if vals["total"] is None:
+        vals["total"] = (vals["prompt"] or 0) + (vals["completion"] or 0)
+    m = re.search(r"Usage (\S+) @ ([^:]+):", line) or re.search(r"model['\"]?\s*[:=]\s*['\"]?([\w.\-/]+)", line)
+    vals["model"] = m.group(1) if m else None
+    vals["provider"] = m.group(2).strip() if m and m.lastindex and m.lastindex > 1 else None
+    return vals
+
+
 class Activity:
     def __init__(self):
         self.lock = threading.Lock()
@@ -418,6 +630,7 @@ class Activity:
             self.calls[ev["call"]] = {"id": ev["call"], "server": ev.get("server"), "client": ev.get("client"),
                                       "client_info": sess.get("client_info"), "tool": ev.get("tool"),
                                       "args": args, "model": args.get("model") or args.get("judge"),
+                                      "agent": args.get("agent"), "provider": args.get("provider"),
                                       "start": ev["ts"], "end": None, "ms": None, "error": None,
                                       "chars": None, "preview": None, "logs": [], "tap_pid": tap}
             sess.setdefault("open", []).append(ev["call"])
@@ -447,29 +660,89 @@ class Activity:
             cur = self.calls.get(sess.get("current") or "")
             if cur and cur["end"] is None:
                 cur["logs"].append({"ts": ev["ts"], "line": line})
+                u = parse_usage(line)
+                if u:
+                    cur.setdefault("usage", []).append(u)
+                m = re.search(r"Council member (\S+): (ok|failed) in ([\d.]+)s", line)
+                if m:
+                    cur.setdefault("members", []).append({"model": m.group(1), "ok": m.group(2) == "ok",
+                                                          "s": float(m.group(3))})
                 m = re.search(r"Routing (\S+) to provider '([^']+)'", line)
                 if m:
                     cur["provider"] = m.group(2)
                     if not cur.get("model"):
                         cur["model"] = m.group(1)
+                self.ai_bridge_line(cur, ev["ts"], line)
             else:
                 sess["logs"] = (sess["logs"] + [{"ts": ev["ts"], "line": line}])[-40:]
+
+    @staticmethod
+    def ai_bridge_line(cur, ts, line):
+        """ai-bridge (claude_bridge.py v2) prints which role calls which pool and when it falls back."""
+        m = re.search(r"Agent '([^']+)' calling provider '([^']+)'(?:\s*\(([^)]*)\))?", line)
+        if m:
+            cur["agent"] = cur.get("agent") or m.group(1)
+            cur["provider"] = m.group(2)
+            cur.setdefault("route", []).append({"ts": ts, "agent": m.group(1), "provider": m.group(2),
+                                                "type": m.group(3), "ok": None})
+            return
+        m = re.search(r"Provider '([^']+)' (.+?), switching to fallback", line)
+        if m:
+            for r in reversed(cur.get("route") or []):
+                if r["provider"] == m.group(1):
+                    r.update(ok=False, why=m.group(2))
+                    break
+            else:
+                cur.setdefault("route", []).append({"ts": ts, "agent": cur.get("agent"), "provider": m.group(1),
+                                                    "ok": False, "why": m.group(2)})
+            return
+        if re.search(r"Консилиум", line):
+            cur["consilium"] = True
+        elif "Claude CLI" in line and ("не обнаружен" in line or "not found" in line.lower()):
+            cur["cli_missing"] = True
+        else:
+            m = re.search(r"Limit signal detected: (.+)", line)
+            if m:
+                cur["limit"] = m.group(1).strip()
 
     def state(self, alive_taps):
         self.refresh()
         with self.lock:
             calls = sorted(self.calls.values(), key=lambda c: c["start"], reverse=True)
+            for c in calls:
+                # a call without an end whose tap process is gone was cut off (client closed, bridge crashed)
+                c["orphan"] = c["end"] is None and c["tap_pid"] not in alive_taps
             sessions = []
             for s in self.sessions.values():
                 d = {k: v for k, v in s.items() if k not in ("current", "open")}
                 d["alive"] = s["exit"] is None and s["tap_pid"] in alive_taps
                 sessions.append(d)
         day0 = time.mktime(time.localtime()[:3] + (0, 0, 0, 0, 0, -1))
+        tokens = {"by_model": {}, "by_provider": {}, "by_day": {}, "today": 0, "total": 0,
+                  "calls_with_usage": 0, "calls_without_usage": 0}
+        for c in calls:
+            us = c.get("usage") or []
+            if c["end"] is not None and c["server"] != "claude-bridge":
+                tokens["calls_with_usage" if us else "calls_without_usage"] += 1
+            for u in us:
+                t = u.get("total") or 0
+                day = time.strftime("%Y-%m-%d", time.localtime(c["start"]))
+                tokens["by_day"][day] = tokens["by_day"].get(day, 0) + t
+                tokens["total"] += t
+                if c["start"] >= day0:
+                    tokens["today"] += t
+                for key, name in (("by_model", u.get("model") or c.get("model") or "?"),
+                                  ("by_provider", u.get("provider") or c.get("provider") or "?")):
+                    row = tokens[key].setdefault(name, {"prompt": 0, "completion": 0, "total": 0, "replies": 0})
+                    row["prompt"] += u.get("prompt") or 0
+                    row["completion"] += u.get("completion") or 0
+                    row["total"] += t
+                    row["replies"] += 1
         today = [c for c in calls if c["start"] >= day0]
         return {"calls": calls[:300], "sessions": sorted(sessions, key=lambda s: s["start"] or 0, reverse=True)[:60],
                 "today": {"count": len(today), "errors": sum(1 for c in today if c["error"]),
                           "running": sum(1 for c in calls if c["end"] is None and c["tap_pid"] in alive_taps)},
-                "log_dir": ACTIVITY_DIR, "has_log": bool(self.offsets)}
+                "tokens": tokens, "log_dir": ACTIVITY_DIR, "has_log": bool(self.offsets)}
 
 
 # ---------------------------------------------------------------- wiring
@@ -584,10 +857,13 @@ def build_config(force=False):
     bridges = {}
     for s in servers:
         f = s.get("file")
-        if f and f not in bridges:
+        # only the model bridges are imported for introspection; other MCP servers are left alone
+        if f and f not in bridges and s["name"] in TAPPABLE:
             bridges[f] = probe_bridge(s, s["_env"])
     servers = [{k: v for k, v in s.items() if k != "_env"} for s in servers]
-    data = {"servers": servers, "bridges": bridges, "rules": rule_files(),
+    rules = rule_files()
+    data = {"servers": servers, "bridges": bridges, "rules": rules, "tiers": tier_rules(rules),
+            "host": socket.gethostname(),
             "antigravity_configs": antigravity_config_paths(), "claude_config": claude_config_path(),
             "claude_cli": find_claude_cli(), "activity_dir": ACTIVITY_DIR, "home": HOME,
             "app": {"version": APP_VERSION, "dir": APP_DIR, "python": sys.executable}, "ts": now()}
@@ -598,7 +874,10 @@ def build_config(force=False):
 def build_state():
     procs = WATCHER.get()
     alive_taps = {p["pid"] for p in procs["items"] if p["group"] == "tap"}
-    return {"ts": now(), "processes": procs, "activity": ACTIVITY.state(alive_taps)}
+    activity = ACTIVITY.state(alive_taps)
+    system = read_system()
+    activity["ledger_calls"] = ledger_matches(system, activity["calls"])
+    return {"ts": now(), "processes": procs, "activity": activity, "system": system}
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -635,7 +914,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(200, build_config(force=q.get("refresh") == ["1"]))
         if u.path == "/api/file":
             path = (q.get("path") or [""])[0]
-            allowed = {r["path"] for r in build_config()["rules"]}
+            allowed = {r["path"] for r in build_config()["rules"]} | {k["path"] for k in read_system()["skills"]}
             if path not in allowed:
                 return self.send(403, {"error": "этот файл не входит в список правил"})
             with open(path, "r", encoding="utf-8", errors="replace") as fh:
@@ -721,6 +1000,20 @@ def status():
             print(f"     пул {p['name']}: {len(p['models'])} моделей, ключ {'есть' if p['has_key'] else 'нет'}")
         if b.get("hardcoded_keys"):
             print(f"     [!] в файле зашито ключей: {b['hardcoded_keys']}")
+    files = {f["name"]: f for f in st["system"]["files"]}
+    pj = (files.get("providers.json") or {}).get("data") or {}
+    aj = (files.get("agents.json") or {}).get("data") or {}
+    tu = (files.get("token_usage.json") or {}).get("data") or {}
+    if pj or aj or tu:
+        print("\nМультимодель:")
+        for pid, prov in (pj.get("providers") or {}).items():
+            print(f"  пул {pid}: {prov.get('model')}  {prov.get('base_url') or prov.get('command') or ''}")
+        for aid, ag in (aj.get("agents") or {}).items():
+            chain = [ag.get("primary_provider")] + list(ag.get("fallback_providers") or [])
+            print(f"  роль {aid}: {' > '.join(str(c) for c in chain if c)}")
+        ts = tu.get("total_stats") or {}
+        if ts:
+            print(f"  токены: {ts.get('total_tokens')} за {ts.get('total_requests')} запросов, ${ts.get('total_cost_usd')}")
     print("\nПроцессы:")
     for p in st["processes"]["items"]:
         print(f"  {p['pid']:>7}  {p['label']:<40} {p['rss'] / 1048576:7.1f} МБ")

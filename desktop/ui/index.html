@@ -4,117 +4,208 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Council Engine</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%23070a16%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%276%27 fill=%27%23ff5a4e%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2711%27 fill=%27none%27 stroke=%27%234f8cff%27 stroke-width=%272%27/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%276%27 fill=%27%2304050d%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%275%27 fill=%27%23ff2bd6%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2711%27 fill=%27none%27 stroke=%27%2319f3ff%27 stroke-width=%272%27/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@600;800&family=Unbounded:wght@500;700&family=Exo+2:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
 <style>
-/* Operator console: rail (views + live status) | stage | dossier. Fonts are system-local so the app works offline. */
+/* Council Engine 2. Night-city operator console: rail | stage | dossier, live ticker at the bottom.
+   One deliberate dark look; every number on screen comes from this computer (see "Справка"). */
 :root{
-  --bg:#070a16; --panel:#0c1124; --panel2:#111832; --line:#1d2747; --grid:rgba(90,120,220,.07);
-  --fg:#d9e1ff; --dim:#8591bb; --faint:#4f5a82;
-  --accent:#ff5a4e; --ok:#3ddc97; --warn:#ffb547; --bad:#ff5a6e; --off:#5b6488;
-  --c-ag:#4f8cff; --c-cc:#e8875a; --c-srv:#b36bff; --c-tool:#3ddc97; --c-model:#ffb547;
-  --display:"Bahnschrift","DIN Alternate","Segoe UI Semibold",system-ui,sans-serif;
-  --mono:"Cascadia Mono","Consolas","SFMono-Regular",Menlo,ui-monospace,monospace;
+  --void:#04050d; --bg2:#070a1a; --panel:rgba(9,13,30,.86); --panel2:#0d1430; --line:#1a2448; --line2:#2b3a78;
+  --fg:#e6ecff; --dim:#8d98c6; --faint:#4f5a88;
+  --cyan:#19f3ff; --pink:#ff2bd6; --yellow:#fcee0a; --red:#ff3b5c; --ok:#3dffa8; --warn:#ffb547;
+  --brand:"Orbitron","Unbounded","Bahnschrift",system-ui,sans-serif;
+  --display:"Unbounded","Bahnschrift","Segoe UI Semibold",system-ui,sans-serif;
+  --ui:"Exo 2","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono","Cascadia Mono","Consolas",ui-monospace,monospace;
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--fg);font:13px/1.5 var(--mono);overflow:hidden}
-button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
-button:focus-visible{outline:1px solid var(--accent);outline-offset:2px}
-code,pre{font-family:var(--mono)}
-.app{display:grid;grid-template-columns:230px minmax(0,1fr) 400px;height:100%}
-.app.closed{grid-template-columns:230px minmax(0,1fr) 0}
+body{background:var(--void);color:var(--fg);font:14px/1.5 var(--ui);overflow:hidden}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;padding:0}
+button:focus-visible{outline:1px solid var(--cyan);outline-offset:2px}
+code{font-family:var(--mono);font-size:.92em;color:var(--cyan)}
+.app{display:grid;grid-template-columns:250px minmax(0,1fr) 0;grid-template-rows:minmax(0,1fr) 32px;height:100%;
+  background:radial-gradient(1200px 700px at 60% 45%,rgba(25,243,255,.06),transparent 60%),radial-gradient(900px 600px at 15% 100%,rgba(255,43,214,.07),transparent 60%),var(--void)}
+.app.open{grid-template-columns:250px minmax(0,1fr) 430px}
+/* scanlines and vignette */
+.app::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;
+  background:repeating-linear-gradient(0deg,rgba(255,255,255,.025) 0 1px,transparent 1px 3px),radial-gradient(ellipse at center,transparent 55%,rgba(0,0,0,.55))}
 /* rail */
-.rail{border-right:1px solid var(--line);background:var(--panel);padding:16px 14px;display:flex;flex-direction:column;gap:18px;overflow:auto}
-.brand b{display:block;font:700 16px var(--display);letter-spacing:.08em}
-.brand span{color:var(--dim);font-size:11px;letter-spacing:.12em;text-transform:uppercase}
+.rail{grid-row:1;border-right:1px solid var(--line);background:linear-gradient(180deg,rgba(13,20,48,.9),rgba(5,7,18,.95));padding:16px 14px;display:flex;flex-direction:column;gap:18px;overflow:auto;min-width:0}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand b{font:800 17px/1.1 var(--brand);letter-spacing:.14em;color:var(--fg);text-shadow:0 0 12px rgba(25,243,255,.55)}
+.brand span{font:500 10px var(--mono);letter-spacing:.18em;color:var(--pink);text-transform:uppercase}
 .sect{display:flex;flex-direction:column;gap:2px}
-.sect h4{margin:0 0 6px;font-size:10px;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--faint)}
-.navb{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:3px;color:var(--dim);text-align:left;width:100%}
-.navb:hover{background:var(--panel2);color:var(--fg)}
-.navb.on{background:var(--panel2);color:var(--fg);box-shadow:inset 2px 0 0 var(--accent)}
-.navb em{margin-left:auto;font-style:normal;color:var(--faint);font-size:11px;font-variant-numeric:tabular-nums}
-.live{display:flex;flex-direction:column;gap:6px;font-size:12px}
+.sect h4{margin:0 0 6px;font:500 10px var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--faint)}
+.navb{display:flex;align-items:center;gap:10px;padding:6px 9px;color:var(--dim);text-align:left;width:100%;font:600 13px var(--ui);letter-spacing:.06em;text-transform:uppercase;
+  clip-path:polygon(0 0,calc(100% - 8px) 0,100% 8px,100% 100%,0 100%)}
+.navb:hover{background:rgba(25,243,255,.06);color:var(--fg)}
+.navb.on{background:linear-gradient(90deg,rgba(25,243,255,.16),rgba(25,243,255,.02));color:var(--cyan);box-shadow:inset 2px 0 0 var(--cyan)}
+.navb em{margin-left:auto;font:400 11px var(--mono);font-style:normal;color:var(--faint)}
+.navb i{font-style:normal;font-family:var(--mono);color:var(--faint);font-size:10px;width:16px}
+.fam{display:flex;align-items:center;gap:9px;padding:5px 8px;width:100%;text-align:left;color:var(--fg)}
+.fam:hover{background:rgba(255,255,255,.04)}
+.fam .sw{width:9px;height:9px;transform:rotate(45deg);flex:none}
+.fam b{font:600 13px var(--ui);letter-spacing:.04em}
+.fam small{margin-left:auto;font:11px var(--mono);color:var(--dim);white-space:nowrap}
+.fam.off b{color:var(--faint)} .fam.off small{color:var(--red)}
+.live{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .live div{display:flex;align-items:center;gap:8px}
-.live small{margin-left:auto;color:var(--faint);font-variant-numeric:tabular-nums}
-.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none;background:var(--off)}
-.dot.ok{background:var(--ok);box-shadow:0 0 6px var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--bad)}
-.dot.run{background:var(--warn);animation:blink 1s infinite}
+.live small{margin-left:auto;color:var(--dim);font:11px var(--mono)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none;background:var(--faint)}
+.dot.ok{background:var(--ok);box-shadow:0 0 8px var(--ok)} .dot.warn{background:var(--warn)} .dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
+.dot.run{background:var(--yellow);box-shadow:0 0 8px var(--yellow);animation:blink 1s infinite}
 @keyframes blink{50%{opacity:.3}}
-.foot{margin-top:auto;color:var(--faint);font-size:11px;display:flex;flex-direction:column;gap:2px}
+.foot{margin-top:auto;color:var(--faint);font:11px var(--mono);display:flex;flex-direction:column;gap:2px}
 /* main */
-.main{position:relative;display:flex;flex-direction:column;min-width:0;background:
-  linear-gradient(var(--grid) 1px,transparent 1px) 0 0/32px 32px,
-  linear-gradient(90deg,var(--grid) 1px,transparent 1px) 0 0/32px 32px, var(--bg)}
-.top{display:flex;gap:20px;align-items:flex-end;justify-content:space-between;padding:16px 22px 10px;flex-wrap:wrap}
-.eyebrow{font-size:10px;letter-spacing:.2em;color:var(--accent);text-transform:uppercase}
-h1{margin:2px 0 0;font:700 28px/1 var(--display);letter-spacing:.1em;text-transform:uppercase}
-.kpis{display:flex;gap:18px;flex-wrap:wrap}
-.kpi{display:flex;flex-direction:column;align-items:flex-end}
-.kpi b{font:600 20px var(--display);font-variant-numeric:tabular-nums}
-.kpi span{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.main{grid-row:1;position:relative;display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{display:flex;gap:22px;align-items:flex-end;justify-content:space-between;padding:14px 24px 10px;flex-wrap:wrap;border-bottom:1px solid rgba(26,36,72,.7)}
+.eyebrow{font:500 11px var(--mono);letter-spacing:.2em;color:var(--pink);text-transform:uppercase;display:flex;gap:12px;align-items:center}
+.eyebrow .lv{color:var(--ok);display:inline-flex;gap:6px;align-items:center}
+h1{margin:4px 0 0;font:700 26px/1 var(--display);letter-spacing:.08em;text-transform:uppercase;position:relative}
+h1::after{content:"_";color:var(--cyan);animation:blink 1.1s steps(1) infinite;margin-left:4px}
+.glitch{position:relative;display:inline-block}
+.glitch::before,.glitch::after{content:attr(data-text);position:absolute;inset:0;pointer-events:none;opacity:0}
+.glitch::before{color:var(--pink);animation:gl1 7s infinite steps(1)}
+.glitch::after{color:var(--cyan);animation:gl2 7s infinite steps(1)}
+@keyframes gl1{0%,92%,100%{opacity:0;transform:none}93%{opacity:.8;transform:translate(-3px,1px);clip-path:inset(0 0 60% 0)}95%{opacity:.8;transform:translate(2px,-1px);clip-path:inset(50% 0 0 0)}}
+@keyframes gl2{0%,93%,100%{opacity:0;transform:none}94%{opacity:.8;transform:translate(3px,0);clip-path:inset(30% 0 30% 0)}96%{opacity:.7;transform:translate(-2px,1px);clip-path:inset(0 0 70% 0)}}
+.kpis{display:flex;gap:6px;flex-wrap:wrap}
+.kpi{display:flex;flex-direction:column;align-items:flex-end;padding:4px 10px;border:1px solid var(--line);background:rgba(9,13,30,.6);
+  clip-path:polygon(8px 0,100% 0,100% calc(100% - 8px),calc(100% - 8px) 100%,0 100%,0 8px)}
+.kpi b{font:600 17px var(--mono);font-variant-numeric:tabular-nums;color:var(--cyan);text-shadow:0 0 10px rgba(25,243,255,.35)}
+.kpi span{font:500 9.5px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
+.kpi.pk b{color:var(--pink);text-shadow:0 0 10px rgba(255,43,214,.35)} .kpi.yl b{color:var(--yellow);text-shadow:none} .kpi.rd b{color:var(--red)}
 .stage{position:relative;flex:1;min-height:0}
 canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
-.pane{position:absolute;inset:0;overflow:auto;padding:4px 22px 40px}
-.hint{position:absolute;left:22px;bottom:14px;font-size:11px;color:var(--faint)}
-.banner{margin:0 22px 8px;border:1px solid var(--warn);color:var(--warn);background:rgba(255,181,71,.06);padding:8px 12px;font-size:12px}
-/* tables */
-table{width:100%;border-collapse:collapse;font-size:12px}
-th{font-weight:500;text-align:left;color:var(--faint);font-size:10px;letter-spacing:.14em;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg)}
-td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
-td.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
-tr.click{cursor:pointer} tr.click:hover td{background:var(--panel)}
+.pane{position:absolute;inset:0;overflow:auto;padding:14px 24px 40px}
+.hint{position:absolute;left:24px;bottom:12px;max-width:640px;font:11.5px var(--mono);color:var(--faint);pointer-events:none}
+.crumb{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;background:rgba(9,13,30,.9);border:1px solid var(--line2);padding:4px 6px;font:600 12px var(--mono);letter-spacing:.12em;text-transform:uppercase}
+.crumb button{padding:3px 9px;color:var(--dim)} .crumb button:hover{color:var(--cyan)}
+.crumb b{color:var(--cyan);padding:0 8px;min-width:120px;text-align:center}
+.banner{margin:10px 24px 0;border:1px solid rgba(255,181,71,.6);color:var(--warn);background:rgba(255,181,71,.06);padding:8px 12px;font-size:13px}
+/* ticker */
+.ticker{grid-column:1 / -1;grid-row:2;border-top:1px solid var(--line2);background:#03040b;display:flex;align-items:center;overflow:hidden;font:12px var(--mono);white-space:nowrap}
+.ticker .lbl{flex:none;padding:0 12px;height:100%;display:flex;align-items:center;gap:6px;background:var(--pink);color:#05010a;font-weight:600;letter-spacing:.16em}
+.ticker .win{overflow:hidden;flex:1;min-width:0}
+.ticker .track{display:inline-block;padding-left:100%;animation:tick 80s linear infinite;color:var(--dim)}
+.ticker .track span{margin-right:42px} .ticker .track b{color:var(--cyan);font-weight:400} .ticker .track em{font-style:normal;color:var(--yellow)}
+.ticker .track .x{color:var(--red)}
+@keyframes tick{to{transform:translateX(-100%)}}
+/* panes */
+h3.sec{font:700 13px var(--display);letter-spacing:.12em;text-transform:uppercase;margin:26px 0 10px;color:var(--fg);display:flex;align-items:center;gap:10px}
+h3.sec::before{content:"";width:14px;height:2px;background:var(--pink);box-shadow:0 0 8px var(--pink)}
+h3.sec:first-child{margin-top:4px}
+h3.sec small{font:400 11px var(--mono);letter-spacing:.04em;text-transform:none;color:var(--dim)}
+.lead{color:var(--dim);max-width:900px;margin:0 0 10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{font:500 10px var(--mono);text-align:left;color:var(--faint);letter-spacing:.14em;text-transform:uppercase;padding:7px 8px;border-bottom:1px solid var(--line2);position:sticky;top:-14px;background:var(--void);z-index:1}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+td.num,th.num{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+tr[data-open]{cursor:pointer} tr[data-open]:hover td{background:rgba(25,243,255,.04)}
+.mono{font-family:var(--mono);font-size:12px}
 .muted{color:var(--dim)} .faint{color:var(--faint)}
-.trunc{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-h3.sec{font:600 13px var(--display);letter-spacing:.14em;text-transform:uppercase;margin:22px 0 8px;color:var(--fg)}
-h3.sec:first-child{margin-top:8px}
-.tag{display:inline-block;border:1px solid var(--line);padding:0 6px;border-radius:2px;font-size:11px;color:var(--dim);white-space:nowrap}
-.tag.ok{color:var(--ok);border-color:rgba(61,220,151,.4)} .tag.bad{color:var(--bad);border-color:rgba(255,90,110,.4)} .tag.warn{color:var(--warn);border-color:rgba(255,181,71,.4)}
-.btn{border:1px solid var(--line);padding:4px 10px;color:var(--dim);font-size:12px}
-.btn:hover{color:var(--fg);border-color:var(--dim)}
-.prose{max-width:760px;display:flex;flex-direction:column;gap:10px}
-.prose p{margin:0}
-.prose ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px}
+.trunc{max-width:440px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{display:inline-block;border:1px solid var(--line2);padding:0 7px;font:11px/18px var(--mono);color:var(--dim);white-space:nowrap}
+.tag.ok{color:var(--ok);border-color:rgba(61,255,168,.45)} .tag.bad{color:var(--red);border-color:rgba(255,59,92,.5)} .tag.warn{color:var(--warn);border-color:rgba(255,181,71,.5)}
+.tag.cy{color:var(--cyan);border-color:rgba(25,243,255,.45)} .tag.pk{color:var(--pink);border-color:rgba(255,43,214,.45)}
+.btn{border:1px solid var(--line2);padding:4px 12px;color:var(--dim);font:12px var(--mono)} .btn:hover{color:var(--cyan);border-color:var(--cyan)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+.card{position:relative;border:1px solid var(--line);background:linear-gradient(160deg,rgba(13,20,48,.85),rgba(6,9,22,.9));padding:12px 14px;display:flex;flex-direction:column;gap:8px;min-width:0;cursor:pointer;
+  clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px))}
+.card:hover{border-color:var(--line2);background:linear-gradient(160deg,rgba(20,30,70,.9),rgba(6,9,22,.9))}
+.card::before{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:var(--c,var(--cyan));box-shadow:0 0 10px var(--c,var(--cyan))}
+.card h4{margin:0;font:700 13.5px/1.25 var(--display);letter-spacing:.03em;display:flex;gap:8px;align-items:center}
+.card .id{font:11px var(--mono);color:var(--dim)}
+.card p{margin:0;font-size:13px;color:var(--dim)}
+.chain{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font:11px var(--mono)}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:1px 7px;border:1px solid var(--line2);font:11px/18px var(--mono);white-space:nowrap}
+.chip .sw{width:7px;height:7px;transform:rotate(45deg)}
+.arrow{color:var(--faint)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bar{height:6px;background:rgba(255,255,255,.06);position:relative;overflow:hidden}
+.bar i{position:absolute;left:0;top:0;bottom:0;background:var(--c,var(--cyan));box-shadow:0 0 8px var(--c,var(--cyan))}
+.empty{color:var(--dim);padding:8px 0}
+.note{border-left:2px solid var(--line2);padding:2px 0 2px 12px;color:var(--dim);font-size:13px;max-width:900px}
+.note b{color:var(--fg)}
+.prose{max-width:860px;display:flex;flex-direction:column;gap:10px}
+.prose p{margin:0} .prose ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:5px}
+/* hierarchy */
+.tree{display:flex;flex-direction:column;align-items:center;gap:0}
+.tnode{border:1px solid var(--line2);background:rgba(9,13,30,.9);padding:9px 18px;text-align:center;min-width:240px;max-width:560px;cursor:pointer;
+  clip-path:polygon(10px 0,calc(100% - 10px) 0,100% 10px,100% calc(100% - 10px),calc(100% - 10px) 100%,10px 100%,0 calc(100% - 10px),0 10px)}
+.tnode:hover{border-color:var(--cyan)}
+.tnode b{display:block;font:700 13px var(--display);letter-spacing:.08em;text-transform:uppercase}
+.tnode span{font:11px var(--mono);color:var(--dim)}
+.tlink{width:1px;height:22px;background:linear-gradient(var(--cyan),var(--pink));box-shadow:0 0 6px var(--cyan)}
+.tpair{display:flex;gap:16px;align-items:center;justify-content:center;flex-wrap:wrap}
+.kvs{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+.kv1{border:1px solid var(--line);padding:8px 10px;background:rgba(9,13,30,.6)}
+.kv1 b{display:block;font:600 19px var(--mono);color:var(--cyan)} .kv1 span{font:10px var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.kv1.pk b{color:var(--pink)} .kv1.yl b{color:var(--yellow)}
+/* chart */
+.chart{border:1px solid var(--line);background:rgba(9,13,30,.6);padding:10px 12px;overflow-x:auto}
+.chart svg{display:block}
 /* dossier */
-.dossier{border-left:1px solid var(--line);background:var(--panel);overflow:auto;min-width:0}
-.app.closed .dossier{border:0;overflow:hidden}
-.dhead{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--dim);z-index:1}
-.dhead button{font-size:18px;line-height:1;padding:2px 6px;color:var(--dim)}
+.dossier{grid-row:1;border-left:1px solid var(--line2);background:linear-gradient(180deg,rgba(10,15,36,.97),rgba(5,7,18,.98));overflow:auto;min-width:0;position:relative}
+.app:not(.open) .dossier{border:0;overflow:hidden}
+.dhead{position:sticky;top:0;background:rgba(10,15,36,.98);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;justify-content:space-between;align-items:center;font:11px var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--pink);z-index:2}
+.dhead button{font-size:20px;line-height:1;padding:2px 6px;color:var(--dim)} .dhead button:hover{color:var(--cyan)}
 .dbody{padding:16px;display:flex;flex-direction:column;gap:16px}
-.dbody h2{margin:0;font:600 19px/1.25 var(--display);letter-spacing:.03em;word-break:break-word}
+.dbody h2{margin:0;font:700 18px/1.25 var(--display);letter-spacing:.03em;word-break:break-word}
 .meta{display:flex;flex-wrap:wrap;gap:6px}
-.blk h5{margin:0 0 6px;font-size:10px;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--accent)}
-.blk p{margin:0}
-.kv{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 10px;font-size:12px}
-.kv dt{color:var(--dim)} .kv dd{margin:0;word-break:break-all}
-pre.box{margin:0;background:var(--bg);border:1px solid var(--line);padding:10px;font-size:11.5px;white-space:pre-wrap;word-break:break-word;max-height:360px;overflow:auto}
+.blk h5{margin:0 0 7px;font:600 10.5px var(--mono);letter-spacing:.2em;text-transform:uppercase;color:var(--cyan);display:flex;gap:8px;align-items:center}
+.blk h5::before{content:"//";color:var(--pink)}
+.blk p{margin:0;font-size:13.5px}
+.kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:4px 10px;font-size:13px;margin:0}
+.kv dt{color:var(--dim)} .kv dd{margin:0;word-break:break-word}
+pre.box{margin:0;background:#03040b;border:1px solid var(--line);padding:10px;font:11.5px/1.5 var(--mono);white-space:pre-wrap;word-break:break-word;max-height:380px;overflow:auto;color:#c9d3ff}
 .list{display:flex;flex-direction:column;border:1px solid var(--line)}
-.list button,.list div.row{display:flex;gap:8px;align-items:baseline;padding:6px 8px;border-top:1px solid var(--line);text-align:left;font-size:12px;width:100%}
+.list > *{display:flex;gap:8px;align-items:baseline;padding:6px 9px;border-top:1px solid var(--line);text-align:left;font-size:13px;width:100%}
 .list > :first-child{border-top:0}
-.list button:hover{background:var(--panel2)}
-.list .r{margin-left:auto;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
-.empty{color:var(--dim);padding:10px 0}
-@media (prefers-reduced-motion:reduce){.dot.run{animation:none}}
+.list button:hover{background:rgba(25,243,255,.05)}
+.list .r{margin-left:auto;color:var(--dim);font:11px var(--mono);white-space:nowrap}
+.ladder{display:flex;flex-direction:column;gap:0;border:1px solid var(--line)}
+.step{display:grid;grid-template-columns:34px minmax(0,1fr);gap:10px;padding:8px 10px;border-top:1px solid var(--line);text-align:left;width:100%}
+.step:first-child{border-top:0}
+.step .n{font:700 15px var(--mono);color:var(--c,var(--cyan));text-shadow:0 0 8px var(--c,var(--cyan))}
+.step b{font-weight:600} .step small{display:block;color:var(--dim);font:11.5px var(--mono)}
+button.step:hover{background:rgba(25,243,255,.05)}
+.ref{color:var(--faint);font:11px var(--mono)}
+/* boot */
+.boot{position:fixed;inset:0;z-index:60;background:#020308;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:opacity .5s}
+.boot.done{opacity:0;pointer-events:none}
+.boot pre{margin:0;font:13px/1.75 var(--mono);color:var(--cyan);text-shadow:0 0 8px rgba(25,243,255,.6);min-width:min(640px,90vw)}
+.boot pre .p{color:var(--pink)} .boot pre .y{color:var(--yellow)} .boot pre .r{color:var(--red)} .boot pre .g{color:var(--ok)}
+.boot h2{font:800 30px var(--brand);letter-spacing:.2em;margin:0 0 18px;color:var(--fg);text-shadow:0 0 18px rgba(255,43,214,.7)}
+@media (max-width:1100px){.app.open{grid-template-columns:200px minmax(0,1fr) 360px}.app{grid-template-columns:200px minmax(0,1fr) 0}}
+@media (prefers-reduced-motion:reduce){.dot.run,h1::after,.glitch::before,.glitch::after{animation:none}.ticker .track{animation-duration:400s}}
 </style>
 </head>
 <body>
-<div class="app closed" id="app">
+<div class="app" id="app">
   <aside class="rail">
-    <div class="brand"><b>COUNCIL ENGINE</b><span>этот компьютер</span></div>
+    <div class="brand"><b class="glitch" data-text="COUNCIL ENGINE">COUNCIL ENGINE</b><span id="host">мультимодельная система</span></div>
     <div class="sect" id="views"><h4>Разделы</h4></div>
+    <div class="sect"><h4>Семейства моделей</h4><div id="fams"></div></div>
     <div class="sect"><h4>Сейчас</h4><div class="live" id="live"></div></div>
     <div class="foot" id="foot"></div>
   </aside>
 
   <main class="main">
     <div class="top">
-      <div><div class="eyebrow" id="eyebrow">// живая карта</div><h1 id="title">Карта</h1></div>
+      <div><div class="eyebrow"><span id="eyebrow">// живая карта</span><span class="lv" id="lv"></span></div><h1 id="title"><span class="glitch" data-text="Система">Система</span></h1></div>
       <div class="kpis" id="kpis"></div>
     </div>
     <div id="banners"></div>
     <div class="stage" id="stage">
       <canvas id="cv"></canvas>
-      <div class="hint" id="hint">Узлы и связи взяты из твоих настроек. Пунктир: мост работает без журнала. Нажми на узел, чтобы увидеть подробности.</div>
+      <div class="hint" id="hint"></div>
+      <div class="crumb" id="crumb" hidden><button id="cBack">⟵ система</button><button id="cPrev" aria-label="Предыдущий">◂</button><b id="cName"></b><button id="cNext" aria-label="Следующий">▸</button></div>
       <div class="pane" id="pane" hidden></div>
     </div>
   </main>
@@ -123,498 +214,924 @@ pre.box{margin:0;background:var(--bg);border:1px solid var(--line);padding:10px;
     <div class="dhead"><span id="dpath"></span><button id="close" aria-label="Закрыть">×</button></div>
     <div class="dbody" id="dbody"></div>
   </aside>
+
+  <div class="ticker"><div class="lbl"><span class="dot run" style="background:#05010a;box-shadow:none"></span>LIVE</div><div class="win"><div class="track" id="track"></div></div></div>
 </div>
+<div class="boot" id="boot"><div><h2>COUNCIL ENGINE</h2><pre id="bootText"></pre></div></div>
 
 <script>
 "use strict";
 const $ = s => document.querySelector(s);
-const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-const CLIENT = {antigravity:{n:"Antigravity", c:"#4f8cff"}, "claude-code":{n:"Claude Code", c:"#e8875a"}};
-const VIEWS = [["map","Карта"],["proc","Процессы"],["log","Журнал вызовов"],["cfg","Настройки и правила"],["how","Как это работает"]];
-let view = "map", CFG = null, ST = null, lastOk = 0, sel = null, failed = false;
-
-// ---------- formatting
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = v => v == null || v === "" || isNaN(v) ? null : Number(v);
+const fmtN = v => num(v) == null ? "—" : Math.round(v).toLocaleString("ru-RU");
+const fmtTok = v => { v = num(v); if (v == null) return "—"; if (v >= 1e6) return (v/1e6).toFixed(2).replace(".", ",")+" M"; if (v >= 1e4) return (v/1e3).toFixed(1).replace(".", ",")+" K"; return fmtN(v); };
+const fmtUsd = v => { v = num(v); if (v == null) return "—"; if (v === 0) return "$0"; return "$" + (v < 0.01 ? v.toFixed(6).replace(/0+$/, "") : v.toFixed(2)); };
 const fmtTime = t => t ? new Date(t*1000).toLocaleTimeString("ru-RU") : "—";
 const fmtDate = t => t ? new Date(t*1000).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
-const fmtAgo = t => { if(!t) return "—"; const s = Math.max(0, Date.now()/1000 - t);
+const fmtAgo = t => { if (!t) return "—"; const s = Math.max(0, Date.now()/1000 - t);
   if (s < 60) return Math.round(s)+" с назад"; if (s < 3600) return Math.round(s/60)+" мин назад";
   if (s < 86400) return Math.round(s/3600)+" ч назад"; return Math.round(s/86400)+" дн назад"; };
 const fmtMs = ms => ms == null ? "идёт…" : ms < 1000 ? ms+" мс" : (ms/1000).toFixed(ms < 10000 ? 1 : 0)+" с";
 const fmtMB = b => (b/1048576).toFixed(b > 1e9 ? 0 : 1)+" МБ";
-const base = p => String(p||"").split(/[\\/]/).pop();
+const base = p => String(p || "").split(/[\\/]/).pop();
+const dirOf = p => String(p || "").replace(/[\\/][^\\/]*$/, "");
+const hostOf = u => { try { return new URL(u).host; } catch (e) { return u || ""; } };
+const histTs = s => { if (typeof s === "number") return s > 1e11 ? s/1000 : s; const d = new Date(String(s || "").replace(" ", "T")); return isNaN(d) ? null : d.getTime()/1000; };
+const plural = (n, a, b, c) => { const m = Math.abs(n) % 100, k = m % 10; return m > 10 && m < 20 ? c : k === 1 ? a : k > 1 && k < 5 ? b : c; };
+function hexA(h, a){ const n = parseInt(h.slice(1), 16); return `rgba(${n>>16},${n>>8&255},${n&255},${a})`; }
+
+// ---------- model families. "about" is general reference text, not read from this computer; it is labelled as such on screen.
+const FAM = {
+  deepseek:{n:"DeepSeek", c:"#19f3ff", rx:/deepseek/i, vendor:"DeepSeek, Китай",
+    about:"Модели DeepSeek сильны в программировании и пошаговых рассуждениях и стоят дёшево за токен. Pro в названии обычно означает старшую модель, Flash: быструю и дешёвую."},
+  glm:{n:"GLM", c:"#3dffa8", rx:/glm|zhipu|chatglm/i, vendor:"Zhipu AI (Z.ai), Китай",
+    about:"Семейство GLM: универсальные модели для кода, анализа и работы с инструментами."},
+  minimax:{n:"MiniMax", c:"#ff2bd6", rx:/minimax|abab/i, vendor:"MiniMax, Китай",
+    about:"Модели MiniMax известны очень длинным контекстом: подходят для больших документов, кодовых баз и архитектурных обзоров."},
+  kimi:{n:"Kimi", c:"#fcee0a", rx:/kimi|moonshot/i, vendor:"Moonshot AI, Китай",
+    about:"Kimi: длинный контекст и агентные задачи с вызовом инструментов."},
+  qwen:{n:"Qwen", c:"#ff9a3c", rx:/qwen|qwq/i, vendor:"Alibaba Cloud, Китай",
+    about:"Большое семейство Qwen. Flash-версии отвечают быстро и стоят дёшево, удобны для черновой генерации кода."},
+  claude:{n:"Claude", c:"#ff6b4a", rx:/claude|sonnet|opus|haiku|anthropic/i, vendor:"Anthropic, США",
+    about:"Claude: сильная модель для кода и длинных задач. Работает через Claude Code CLI на компьютере или через API."},
+  gemini:{n:"Gemini", c:"#6c8cff", rx:/gemini/i, vendor:"Google",
+    about:"Gemini: модель, на которой работает сам Antigravity."},
+  llama:{n:"Llama", c:"#b48cff", rx:/llama/i, vendor:"Meta, открытые веса",
+    about:"Открытая модель Llama. Часто запускается у Groq: очень быстрые ответы и бесплатный лимит."},
+  gpt:{n:"GPT", c:"#a7b3d9", rx:/gpt|openai|\bo[134]\b/i, vendor:"OpenAI или совместимые",
+    about:"Модели семейства GPT или совместимые с API OpenAI."},
+  other:{n:"Другие", c:"#7a86a8", rx:/$^/, vendor:"—", about:"Модель не удалось отнести к известному семейству по названию."},
+};
+const FAM_ORDER = ["deepseek","glm","minimax","kimi","qwen","claude","gemini","llama","gpt","other"];
+const ALWAYS = ["deepseek","glm","minimax","kimi"];
+const famOf = s => { s = String(s || ""); for (const k of FAM_ORDER) if (FAM[k].rx.test(s)) return k; return "other"; };
+const CLIENT = {antigravity:{n:"Antigravity", c:"#6c8cff", g:"AG"}, "claude-code":{n:"Claude Code", c:"#ff6b4a", g:"CC"}};
+
+const VIEWS = [
+  ["sys","Система","// живая карта мультимодели"], ["roles","Роли","// кто за что отвечает"], ["models","Модели","// пулы и семейства"],
+  ["tokens","Токены","// расход и балансы"], ["log","Журнал","// каждый вызов моста"], ["proc","Процессы","// что запущено сейчас"],
+  ["cfg","Настройки","// откуда берутся данные"], ["how","Справка","// как это работает"]];
+let view = "sys", CFG = null, ST = null, SYS = null, lastOk = 0, failed = false, selRef = null;
+try { const v = sessionStorage.getItem("ce-view"); if (VIEWS.some(x => x[0] === v)) view = v; } catch (e) {}
 
 // ---------- data
-async function getJSON(u){ const r = await fetch(u, {cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
-async function loadConfig(force){ CFG = await getJSON("/api/config"+(force?"?refresh=1":"")); buildGraph(); render(); }
+async function getJSON(u){ const r = await fetch(u, {cache:"no-store"}); if (!r.ok) throw new Error(r.status); return r.json(); }
+async function loadConfig(force){ CFG = await getJSON("/api/config" + (force ? "?refresh=1" : "")); if (ST) refreshAll(); }
 async function poll(){
-  try { ST = await getJSON("/api/state"); lastOk = Date.now(); failed = false; updateGraphState(); render(); }
-  catch(e){ failed = true; renderLive(); }
+  try { ST = await getJSON("/api/state"); lastOk = Date.now(); failed = false; refreshAll(); }
+  catch (e) { failed = true; renderLive(); }
   setTimeout(poll, 2000);
 }
+function refreshAll(){ if (!CFG || !ST) return; SYS = buildSystem(); syncNodes(); render(); }
 const procs = g => (ST?.processes.items || []).filter(p => !g || p.group === g);
 const calls = () => ST?.activity.calls || [];
 const servers = () => CFG?.servers || [];
-function bridgeOf(s){ return s.file ? CFG.bridges[s.file] : null; }
-function clientRunning(c){ return procs(c === "antigravity" ? "antigravity" : "claude").length > 0; }
+const bridgeOf = s => s && s.file ? CFG.bridges[s.file] : null;
+const clientRunning = c => procs(c === "antigravity" ? "antigravity" : "claude").length > 0;
+const callAgent = c => c.agent || (c.route || []).find(r => r.agent)?.agent || null;
+const callProvs = c => [...new Set([...(c.route || []).map(r => r.provider), c.provider].filter(Boolean))];
+const callTok = c => { const e = ST?.activity.ledger_calls?.[c.id]; return e && e.length ? e.reduce((a, x) => a + (num(x.total_tokens) || 0), 0) : null; };
+const isRun = c => c.end == null && !c.orphan;
+const callQuery = c => c.args?.task || c.args?.question || c.args?.instruction || c.args?.prompt || c.args?.focus || c.args?.query || c.args?.model || c.args?.work_folder || "";
+
+function buildSystem(){
+  const S = {providers:[], prov:{}, agents:[], agent:{}, skills:[], skill:{}, ledger:null, files:ST.system?.files || [],
+             defProv:null, defAgent:null, core:null, bridge:{}, tools:[], fam:{}, tokRows:[]};
+  const file = n => S.files.find(f => f.name === n && f.data && typeof f.data === "object");
+  const pf = file("providers.json"), pj = pf?.data;
+  if (pj) {
+    S.defProv = pj.default_provider || null;
+    for (const [id, p] of Object.entries(pj.providers || {})) {
+      if (!p || typeof p !== "object") continue;
+      const model = p.model || (Array.isArray(p.models) ? p.models[0] : "") || "";
+      const fam = famOf(model || id), nameFam = famOf(id);
+      S.providers.push({id, type:p.type || "", base:p.base_url || "", host:hostOf(p.base_url), model, models:p.models || (model ? [model] : []),
+        tier:p.tier || "", privacy:p.privacy || "", desc:p.description || "", command:p.command || "", isDefault:id === S.defProv,
+        cli:p.type === "cli", fam, alias:nameFam !== "other" && nameFam !== fam ? nameFam : null,
+        keyInline:typeof p.api_key === "string" && p.api_key !== "", keyEnv:!!p.api_key_env, usedBy:[]});
+    }
+  }
+  if (!S.providers.length) Object.values(CFG.bridges || {}).forEach(b => (b.providers || []).forEach(p => {
+    const model = (p.models || []).includes(b.default_model) ? b.default_model : (p.models || [])[0] || "";
+    S.providers.push({id:p.name, type:"openai_compatible", base:p.base_url, host:hostOf(p.base_url), model, models:p.models || [], tier:"приоритет "+(p.priority ?? "—"),
+      privacy:"", desc:"", isDefault:false, cli:false, fam:famOf(model || p.name), alias:null, keyInline:false, keyEnv:p.has_key, usedBy:[]});
+  }));
+  S.providers.forEach(p => S.prov[p.id] = p);
+  const aj = file("agents.json")?.data;
+  if (aj) {
+    S.defAgent = aj.default_agent || null;
+    for (const [id, a] of Object.entries(aj.agents || {})) {
+      if (!a || typeof a !== "object") continue;
+      const primary = a.primary_provider || a.provider || a.model || null;
+      const fb = a.fallback_providers || a.fallbacks || [];
+      const chain = [primary, ...fb].filter((x, i, arr) => x && arr.indexOf(x) === i);
+      const full = a.name || id;
+      S.agents.push({id, full, name:full.replace(/\s*\([^)]*\)\s*$/, "") || id, desc:a.description || "", primary, chain,
+        skills:a.skills || [], tools:a.allowed_tools || "", write:!!a.write_access, isDefault:id === S.defAgent,
+        fam:S.prov[primary]?.fam || famOf(primary)});
+    }
+  }
+  S.agents.forEach(a => { S.agent[a.id] = a; a.chain.forEach((p, i) => S.prov[p]?.usedBy.push({agent:a.id, pos:i})); });
+  (ST.system?.skills || []).forEach(k => { S.skills.push(k); S.skill[k.name] = k; });
+  S.agents.forEach(a => a.skills.forEach(k => { if (!S.skill[k]) { S.skill[k] = {name:k, missing:true}; S.skills.push(S.skill[k]); } }));
+  S.ledgerFile = file("token_usage.json") || null;
+  S.ledger = S.ledgerFile?.data || null;
+  for (const [key, r] of Object.entries(S.ledger?.by_provider || {})) {
+    if (!r || typeof r !== "object") continue;
+    const p = S.prov[key] || null;
+    S.tokRows.push({key, p, via:p ? [] : S.providers.filter(x => x.model === key), model:r.model, fam:p ? p.fam : famOf(r.model || key),
+      requests:num(r.requests), prompt:num(r.prompt_tokens), completion:num(r.completion_tokens), total:num(r.total_tokens),
+      cost:num(r.cost_usd), remaining:num(r.remaining_units), credit:r.last_credit});
+  }
+  // the server that owns providers.json is the core of the system; otherwise the bridge with the most tools
+  const srv = servers();
+  let core = pf && srv.find(s => s.file && dirOf(s.file) === dirOf(pf.path));
+  if (!core) core = srv.slice().sort((a, b) => (bridgeOf(b)?.tools?.length || 0) - (bridgeOf(a)?.tools?.length || 0))[0];
+  S.core = core || null; S.bridge = (core && bridgeOf(core)) || {}; S.tools = S.bridge.tools || [];
+  for (const k of FAM_ORDER) {
+    const pools = S.providers.filter(p => p.fam === k);
+    const roles = S.agents.filter(a => a.chain.some(id => S.prov[id]?.fam === k));
+    const rows = S.tokRows.filter(r => r.fam === k);
+    S.fam[k] = {key:k, pools, roles, primaryRoles:S.agents.filter(a => S.prov[a.primary]?.fam === k),
+      tokens:rows.reduce((a, r) => a + (r.total || 0), 0), requests:rows.reduce((a, r) => a + (r.requests || 0), 0),
+      cost:rows.reduce((a, r) => a + (r.cost || 0), 0), shown:ALWAYS.includes(k) || pools.length > 0 || rows.length > 0};
+  }
+  S.history = (S.ledger?.history || []).filter(e => e && typeof e === "object").map(e => ({...e, ts:histTs(e.timestamp), fam:S.prov[e.provider]?.fam || famOf(e.model || e.provider)}));
+  return S;
+}
+const famList = () => FAM_ORDER.filter(k => SYS.fam[k].shown);
+const agentCalls = id => calls().filter(c => callAgent(c) === id || (c.route || []).some(r => r.agent === id));
+const provCalls = id => calls().filter(c => callProvs(c).includes(id));
+const provTok = id => SYS.tokRows.find(r => r.key === id) || null;
+const cliOk = () => !!CFG.claude_cli;
 
 // ---------- rail
-function renderNav(){
+function renderRail(){
   const v = $("#views"); v.querySelectorAll("button").forEach(b => b.remove());
-  const counts = {proc: procs().length, log: ST?.activity.today.count ?? 0, cfg: CFG?.rules.length ?? 0};
-  VIEWS.forEach(([id, label]) => {
-    const b = document.createElement("button"); b.className = "navb"+(view===id?" on":"");
-    b.innerHTML = esc(label) + (counts[id] != null ? `<em>${counts[id]}</em>` : "");
+  const counts = {roles:SYS.agents.length, models:SYS.providers.length, log:ST.activity.today.count, proc:procs().length};
+  VIEWS.forEach(([id, label], i) => {
+    const b = document.createElement("button"); b.className = "navb" + (view === id ? " on" : "");
+    b.innerHTML = `<i>0${i+1}</i>${esc(label)}` + (counts[id] != null ? `<em>${counts[id]}</em>` : "");
     b.onclick = () => setView(id); v.append(b);
   });
+  $("#fams").innerHTML = famList().map(k => {
+    const f = SYS.fam[k], off = !f.pools.length;
+    return `<button class="fam${off ? " off" : ""}" data-open="fam:${k}"><span class="sw" style="background:${off ? "transparent" : FAM[k].c};border:1px solid ${FAM[k].c};box-shadow:${off ? "none" : "0 0 8px "+FAM[k].c}"></span><b>${esc(FAM[k].n)}</b>
+      <small>${off ? "не подключена" : f.pools.length+" "+plural(f.pools.length,"пул","пула","пулов")+" · "+fmtTok(f.tokens)}</small></button>`;
+  }).join("");
+  $("#host").textContent = "// " + (CFG.host || "этот компьютер");
+  renderLive();
 }
 function renderLive(){
   const L = $("#live");
   if (!ST || !CFG) { L.innerHTML = `<div class="muted">загрузка…</div>`; return; }
   const ag = procs("antigravity"), cc = procs("claude"), running = ST.activity.today.running;
-  const bridges = procs("tap").length + procs("bridge").filter(p => !p.parent_in_set).length;
+  const coreUp = SYS?.core && procs().some(p => (p.group === "bridge" || p.group === "tap") && SYS.core.file && p.cmd.toLowerCase().includes(base(SYS.core.file).toLowerCase()));
   const tapped = servers().filter(s => s.tappable && s.tapped).length, tappable = servers().filter(s => s.tappable).length;
   L.innerHTML = `
-    <div><span class="dot ${ag.length?"ok":""}"></span>Antigravity<small>${ag.length ? ag.length+" проц." : "не запущен"}</small></div>
-    <div><span class="dot ${cc.length?"ok":""}"></span>Claude Code<small>${cc.length ? cc.length+" проц." : "не запущен"}</small></div>
-    <div><span class="dot ${bridges?"ok":""}"></span>Мосты на связи<small>${bridges}</small></div>
-    <div><span class="dot ${running?"run":""}"></span>Вызовы сейчас<small>${running}</small></div>
-    <div><span class="dot ${tapped===tappable&&tappable?"ok":tapped?"warn":"bad"}"></span>Журнал подключён<small>${tapped} из ${tappable}</small></div>`;
-  $("#foot").innerHTML = failed ? `<span style="color:var(--bad)">нет связи с сервером приложения</span>`
-    : `<span>обновлено ${fmtTime(ST.ts)}</span><span>процессы: каждые 4 с</span><span>v${esc(CFG.app.version)}</span>`;
+    <div><span class="dot ${ag.length ? "ok" : ""}"></span>Antigravity<small>${ag.length ? ag.length+" проц." : "не запущен"}</small></div>
+    <div><span class="dot ${cc.length ? "ok" : ""}"></span>Claude Code<small>${cc.length ? cc.length+" проц." : "не запущен"}</small></div>
+    <div><span class="dot ${coreUp ? "ok" : ""}"></span>${esc(SYS?.core?.name || "мост")}<small>${coreUp ? "на связи" : "ждёт клиента"}</small></div>
+    <div><span class="dot ${running ? "run" : ""}"></span>Вызовы сейчас<small>${running}</small></div>
+    <div><span class="dot ${tapped === tappable && tappable ? "ok" : tapped ? "warn" : "bad"}"></span>Журнал<small>${tapped} из ${tappable}</small></div>
+    <div><span class="dot ${cliOk() ? "ok" : "warn"}"></span>Claude CLI<small>${cliOk() ? "найден" : "не установлен"}</small></div>`;
+  $("#foot").innerHTML = failed ? `<span style="color:var(--red)">нет связи с сервером приложения</span>`
+    : `<span>обновлено ${fmtTime(ST.ts)}</span><span>процессы: каждые 4 с</span><span>Council Engine v${esc(CFG.app.version)}</span>`;
+  $("#lv").innerHTML = failed ? `<span class="dot bad"></span>нет связи` : `<span class="dot ok"></span>live`;
 }
-function renderKpis(){
-  if (!ST) return;
-  const t = ST.activity.today, cs = calls().filter(c => c.ms != null && c.start > Date.now()/1000 - 86400);
-  const avg = cs.length ? Math.round(cs.reduce((a,c) => a + c.ms, 0) / cs.length) : null;
+function renderTop(){
+  const t = ST.activity.today, L = SYS.ledger?.total_stats || {};
+  const day0 = new Date(); day0.setHours(0, 0, 0, 0);
+  const todayTok = SYS.history.filter(e => e.ts && e.ts*1000 >= day0.getTime()).reduce((a, e) => a + (num(e.total_tokens) || 0), 0);
   $("#kpis").innerHTML = `
     <div class="kpi"><b>${t.count}</b><span>вызовов сегодня</span></div>
-    <div class="kpi"><b style="color:${t.errors?"var(--bad)":"inherit"}">${t.errors}</b><span>с ошибкой</span></div>
-    <div class="kpi"><b>${avg==null?"—":fmtMs(avg)}</b><span>среднее время</span></div>
-    <div class="kpi"><b>${fmtMB(procs().filter(p=>p.group!=="app").reduce((a,p)=>a+(p.rss||0),0))}</b><span>память агентов</span></div>`;
+    <div class="kpi pk"><b>${fmtTok(L.total_tokens)}</b><span>токенов всего</span></div>
+    <div class="kpi"><b>${SYS.ledger ? fmtTok(todayTok) : "—"}</b><span>токенов сегодня</span></div>
+    <div class="kpi yl"><b>${fmtUsd(L.total_cost_usd)}</b><span>стоимость</span></div>
+    <div class="kpi"><b>${SYS.providers.length}/${SYS.agents.length}</b><span>пулов / ролей</span></div>
+    <div class="kpi ${t.errors ? "rd" : ""}"><b>${t.errors}</b><span>ошибок сегодня</span></div>`;
 }
 function renderBanners(){
   const out = [];
-  if (CFG) {
-    const off = servers().filter(s => s.tappable && !s.tapped);
-    if (off.length) out.push(`Журнал вызовов не подключён для: ${off.map(s => esc(s.name)+" ("+esc(CLIENT[s.client]?.n||s.client)+")").join(", ")}. Эти вызовы приложение не видит. Подключение: <code>python council_app.py --wire</code>, затем перезапуск Antigravity и нового чата Claude Code.`);
-    const keys = Object.values(CFG.bridges).filter(b => b.hardcoded_keys);
-    if (keys.length) out.push(`В файле ${keys.map(b => esc(base(b.file))).join(", ")} прямо в коде записаны API-ключи (${keys.reduce((a,b)=>a+b.hardcoded_keys,0)} шт.). Если репозиторий публичный, их видят все: стоит перевыпустить ключи и передавать их только через переменные окружения.`);
-  }
-  $("#banners").innerHTML = out.map(t => `<div class="banner">${t}</div>`).join("");
-  requestAnimationFrame(resize);
+  const off = servers().filter(s => s.tappable && !s.tapped);
+  if (off.length) out.push(`Журнал вызовов не подключён для: ${off.map(s => esc(s.name)+" ("+esc(CLIENT[s.client]?.n || s.client)+")").join(", ")}. Эти вызовы приложение не видит. Подключение: <code>python council_app.py --wire</code>, затем перезапуск Antigravity.`);
+  const html = out.map(t => `<div class="banner">${t}</div>`).join("");
+  if ($("#banners").innerHTML !== html) { $("#banners").innerHTML = html; requestAnimationFrame(resize); }
+}
+let lastTicker = "";
+function renderTicker(){
+  const cs = calls().slice(0, 14);
+  const html = cs.length ? cs.map(c => {
+    const a = callAgent(c), pv = callProvs(c).slice(-1)[0], tk = callTok(c);
+    return `<span>${fmtTime(c.start)} · ${esc(CLIENT[c.client]?.n || c.client)} → <b>${esc(c.tool)}</b>${a ? " · роль "+esc(a) : ""}${pv ? " · "+esc(pv) : ""} · ${isRun(c) ? "<em>идёт</em>" : c.orphan ? `<i class="x">оборван</i>` : c.error ? `<i class="x">ошибка</i>` : fmtMs(c.ms)}${tk ? " · "+fmtN(tk)+" ток." : ""}</span>`;
+  }).join("") : `<span>журнал пуст: вызовов моста ещё не было. Как только Antigravity обратится к ${esc(SYS.core?.name || "мосту")}, вызов появится здесь.</span>`;
+  const L = SYS.ledger?.total_stats;
+  const tail = L ? `<span>учёт токенов: <b>${fmtN(L.total_tokens)}</b> токенов за ${fmtN(L.total_requests)} запросов · ${fmtUsd(L.total_cost_usd)}</span>` : "";
+  const full = html + tail;
+  if (full !== lastTicker) { $("#track").innerHTML = full; lastTicker = full; }
 }
 
 // ---------- views
 function setView(v){
-  view = v; const isMap = v === "map";
-  $("#cv").hidden = !isMap; $("#hint").hidden = !isMap; $("#pane").hidden = isMap;
-  $("#title").textContent = VIEWS.find(x => x[0]===v)[1];
-  $("#eyebrow").textContent = {map:"// живая карта", proc:"// диспетчер", log:"// все вызовы мостов", cfg:"// откуда берутся данные", how:"// без магии"}[v];
-  render(); if (isMap) requestAnimationFrame(resize);
+  view = v; try { sessionStorage.setItem("ce-view", v); } catch (e) {}
+  const isSys = v === "sys", meta = VIEWS.find(x => x[0] === v);
+  $("#cv").hidden = !isSys; $("#hint").hidden = !isSys; $("#pane").hidden = isSys; $("#crumb").hidden = !isSys || mode.kind !== "focus";
+  $("#title").innerHTML = `<span class="glitch" data-text="${esc(meta[1])}">${esc(meta[1])}</span>`;
+  $("#eyebrow").textContent = meta[2];
+  lastPane = ""; render(); if (isSys) requestAnimationFrame(resize);
 }
+let lastPane = "";
+function setPane(html){ if (html === lastPane) return; const p = $("#pane"), y = p.scrollTop; p.innerHTML = html; p.scrollTop = y; lastPane = html; }
 function render(){
-  renderNav(); renderLive(); renderKpis();
-  if (!CFG || !ST) return;
-  if (view !== "how") pane().dataset.view = view;
-  if (view === "proc") renderProc(); else if (view === "log") renderLog();
-  else if (view === "cfg") renderCfg(); else if (view === "how") renderHow();
-  if (sel?.refresh) sel.refresh();
+  if (!CFG || !ST || !SYS) return;
+  renderRail(); renderTop(); renderBanners(); renderTicker();
+  if (view === "roles") setPane(viewRoles()); else if (view === "models") setPane(viewModels());
+  else if (view === "tokens") setPane(viewTokens()); else if (view === "log") setPane(viewLog());
+  else if (view === "proc") setPane(viewProc()); else if (view === "cfg") setPane(viewCfg());
+  else if (view === "how") setPane(viewHow());
+  else $("#hint").innerHTML = mode.kind === "focus" ? "" : SYS.agents.length
+    ? "Ядро: мост, через который Antigravity зовёт модели. Внутреннее кольцо: роли из agents.json. Внешнее: пулы моделей из providers.json, цвет означает семейство. Линия ведёт к основному пулу роли, пунктир к запасным. Нажми на любой узел."
+    : "Роли и пулы моделей не найдены рядом с мостом. Видны клиенты и MCP-серверы из настроек.";
+  if (selRef) renderDossier();
 }
-const pane = () => $("#pane");
-const keepScroll = fn => { const p = pane(), y = p.scrollTop; fn(); p.scrollTop = y; };
+const sw = k => `<span class="sw" style="background:${FAM[k].c};box-shadow:0 0 6px ${FAM[k].c}"></span>`;
+const provChip = (id, i) => { const p = SYS.prov[id]; const k = p ? p.fam : famOf(id);
+  return `<span class="chip" title="${esc(p ? p.model : "пула нет в providers.json")}" style="border-color:${hexA(FAM[k].c, .5)}">${sw(k)}${i != null ? `<span class="faint">${i+1}</span>` : ""}${esc(id)}</span>`; };
+const chainHtml = a => `<div class="chain">${a.chain.map((id, i) => provChip(id, i)).join('<span class="arrow">›</span>')}</div>`;
+const personSvg = c => `<svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="8" fill="none" stroke="${c}" stroke-width="1.3"/><circle cx="9" cy="7" r="2.6" fill="none" stroke="${c}" stroke-width="1.3"/><path d="M4.2 14.2c1-2.3 2.7-3.3 4.8-3.3s3.8 1 4.8 3.3" fill="none" stroke="${c}" stroke-width="1.3"/></svg>`;
 
-function renderProc(){
-  const groups = [["antigravity","Antigravity"],["claude","Claude Code"],["tap","Журнал вызовов (прослойка)"],["bridge","Мосты MCP"],["bridge-child","Задачи, запущенные мостами"],["app","Это приложение"]];
-  const err = ST.processes.error ? `<div class="banner">Не удалось прочитать список процессов: ${esc(ST.processes.error)}</div>` : "";
-  keepScroll(() => pane().innerHTML = err + groups.map(([g, title]) => {
-    const list = procs(g).sort((a,b) => (a.start||0) - (b.start||0));
-    const mem = list.reduce((a,p) => a + (p.rss||0), 0);
-    return `<h3 class="sec">${title} <span class="faint">· ${list.length} · ${fmtMB(mem)}</span></h3>` + (list.length ? `
-      <table><thead><tr><th>PID</th><th>Процесс</th><th>Запущен</th><th class="num">Память</th><th class="num">CPU</th><th>Командная строка</th></tr></thead><tbody>
-      ${list.map(p => `<tr class="click" data-pid="${p.pid}"><td class="num">${p.pid}</td><td>${esc(p.name)}</td><td class="muted" style="white-space:nowrap">${fmtDate(p.start)}</td>
-        <td class="num">${fmtMB(p.rss||0)}</td><td class="num">${p.cpu==null?"—":p.cpu.toFixed(1)+"%"}</td><td class="trunc muted" title="${esc(p.cmd)}">${esc(p.cmd)}</td></tr>`).join("")}
-      </tbody></table>` : `<div class="empty">Не запущено.</div>`);
-  }).join(""));
-  pane().querySelectorAll("tr[data-pid]").forEach(tr => tr.onclick = () => openProc(+tr.dataset.pid));
+function viewRoles(){
+  if (!SYS.agents.length) return `<div class="empty">Файл agents.json рядом с мостом не найден, поэтому ролей нет. Приложение ищет его в папке, где лежит файл MCP-моста.</div>`;
+  const ag = procs("antigravity").length, core = SYS.core;
+  const consilium = SYS.tools.find(t => t.name === "consilium");
+  const cons = ["architect","developer","reviewer"].filter(id => SYS.agent[id]);
+  const tiers = CFG.tiers || [];
+  return `<div class="tree">
+      <div class="tnode" data-open="how"><b>Ты · оператор</b><span>ставишь задачу в чате Antigravity</span></div><div class="tlink"></div>
+      <div class="tpair"><div class="tnode" data-open="client:antigravity" style="border-color:${CLIENT.antigravity.c}"><b>Antigravity</b><span>ведущий агент на Gemini · ${ag ? "запущен" : "не запущен"}</span></div>
+        <div class="tnode" data-open="client:claude-code" style="border-color:${CLIENT["claude-code"].c}"><b>Claude Code</b><span>${procs("claude").length ? "запущен" : "не запущен"} · CLI ${cliOk() ? "найден" : "не установлен"}</span></div></div>
+      <div class="tlink"></div>
+      <div class="tnode" data-open="core" style="border-color:var(--cyan)"><b>${esc(core?.name || "мост")}</b><span>MCP-мост · ${SYS.tools.length} инструментов · роль по умолчанию: ${esc(SYS.defAgent || "—")} · пул по умолчанию: ${esc(SYS.defProv || "—")}</span></div>
+      <div class="tlink"></div></div>
+    <h3 class="sec">Роли <small>${SYS.agents.length} из agents.json · вызываются инструментом agent_run(agent, task)</small></h3>
+    <div class="grid">${SYS.agents.map(a => { const c = FAM[a.fam].c, n = agentCalls(a.id).length;
+      return `<div class="card" style="--c:${c}" data-open="role:${esc(a.id)}">
+        <h4>${personSvg(c)}${esc(a.name)}${a.isDefault ? ` <span class="tag cy">по умолчанию</span>` : ""}</h4>
+        <div class="id">${esc(a.id)} · ${a.write ? `<span style="color:var(--warn)">может менять файлы</span>` : "только чтение"} · ${n} ${plural(n,"вызов","вызова","вызовов")} в журнале</div>
+        <p>${esc(a.desc || "Описания в agents.json нет.")}</p>
+        ${chainHtml(a)}
+        ${a.skills.length ? `<div class="chain">${a.skills.map(k => `<span class="chip" style="border-color:rgba(252,238,10,.4);color:var(--yellow)">◆ ${esc(k)}</span>`).join("")}</div>` : ""}
+      </div>`; }).join("")}</div>
+    <p class="note" style="margin-top:12px">Цепочка читается слева направо: первым идёт основной пул, дальше запасные. Если пул ответил ошибкой или лимитом, мост пишет в журнал «switching to fallback» и пробует следующий.</p>
+    ${consilium ? `<h3 class="sec">Консилиум <small>инструмент consilium(task)</small></h3>
+      <div class="row">${cons.map((id, i) => `${i ? '<span class="arrow">→</span>' : ""}<button class="chip" data-open="role:${esc(id)}" style="border-color:${hexA(FAM[SYS.agent[id].fam].c,.6)}">${sw(SYS.agent[id].fam)}${esc(SYS.agent[id].name)}</button>`).join("")}</div>
+      <p class="note" style="margin-top:8px">${esc(consilium.description || "")}<br>По коду моста (проверено 1 октября): роли отвечают по очереди, каждая со своей цепочкой пулов. Строка «консенсус» в итоговом ответе заготовлена в коде, модели не голосуют.</p>` : ""}
+    ${tiers.length ? `<h3 class="sec">Правила Antigravity <small>из GEMINI.md: когда и кого звать</small></h3>
+      <div class="list">${tiers.map(t => `<div><b style="white-space:nowrap">${esc(t.name)}</b><span class="muted">${esc(t.text)}</span></div>`).join("")}</div>` : ""}`;
 }
 
-function callRow(c){
-  const st = c.end == null ? `<span class="tag warn">идёт</span>` : c.error ? `<span class="tag bad">ошибка</span>` : `<span class="tag ok">готово</span>`;
-  const q = c.args?.prompt || c.args?.question || c.args?.task || c.args?.instruction || c.args?.focus || c.args?.work_folder || "";
-  return `<tr class="click" data-call="${esc(c.id)}"><td class="muted">${fmtTime(c.start)}</td>
-    <td>${esc(CLIENT[c.client]?.n || c.client)}</td><td>${esc(c.tool)}</td><td class="muted">${esc(c.model || "")}</td>
-    <td class="num">${fmtMs(c.ms)}</td><td>${st}</td><td class="trunc muted">${esc(q)}</td></tr>`;
+function provCard(p){
+  const r = provTok(p.id), c = FAM[p.fam].c;
+  const prim = p.usedBy.filter(u => u.pos === 0).map(u => esc(SYS.agent[u.agent]?.name || u.agent)), fb = p.usedBy.filter(u => u.pos > 0).length;
+  const users = [prim.length ? "основной у: " + prim.join(", ") : "", fb ? "запасной у " + fb + " " + plural(fb, "роли", "ролей", "ролей") : ""].filter(Boolean);
+  return `<div class="card" style="--c:${c}" data-open="pool:${esc(p.id)}">
+    <h4>${esc(p.id)}${p.isDefault ? ` <span class="tag cy">по умолчанию</span>` : ""}${p.alias ? ` <span class="tag warn">имя ≠ модель</span>` : ""}</h4>
+    <div class="id">${esc(p.model || "модель не указана")} · ${esc(p.cli ? "локальный CLI: "+(p.command || "") : p.host || "адрес не указан")}</div>
+    ${p.desc ? `<p>${esc(p.desc)}</p>` : ""}
+    <div class="row">${p.tier ? `<span class="tag ${/free/i.test(p.tier) ? "ok" : /paid|active/i.test(p.tier) ? "pk" : ""}">${esc(p.tier)}</span>` : ""}${p.privacy ? `<span class="tag">${esc(p.privacy)}</span>` : ""}
+      ${p.cli ? `<span class="tag ${cliOk() ? "ok" : "bad"}">${cliOk() ? "CLI найден" : "CLI не установлен"}</span>` : ""}
+      ${r ? `<span class="tag cy">${fmtTok(r.total)} ток. · ${fmtN(r.requests)} запр.</span>` : `<span class="tag">токенов не записано</span>`}</div>
+    <div class="faint" style="font-size:12px">${users.length ? users.join(" · ") : "ни одна роль не использует"}</div>
+  </div>`;
 }
-function renderLog(){
+function viewModels(){
+  if (!SYS.providers.length) return `<div class="empty">Пулы моделей не найдены: рядом с мостом нет providers.json.</div>`;
+  return `<p class="lead">Каждый пул: адрес API и модель из providers.json. Цвет означает семейство модели, которая реально отвечает (по полю model), а не имя пула. Описания семейств ниже помечены как справка: это общие сведения, их нет в твоих файлах.</p>` +
+    famList().map(k => { const f = SYS.fam[k], F = FAM[k];
+      return `<h3 class="sec" style="color:${F.c}">${esc(F.n)} <small>${esc(F.vendor)} · ${f.pools.length ? f.pools.length+" "+plural(f.pools.length,"пул","пула","пулов")+" · "+fmtTok(f.tokens)+" токенов" : "не подключена"}</small></h3>
+        <p class="note"><span class="ref">справка:</span> ${esc(F.about)}${f.primaryRoles.length ? `<br><span class="ref">у тебя:</span> основная модель для ролей ${f.primaryRoles.map(a => esc(a.name)).join(", ")}.` : f.roles.length ? `<br><span class="ref">у тебя:</span> запасная в цепочках ролей ${f.roles.map(a => esc(a.name)).join(", ")}.` : ""}</p>
+        ${f.pools.length ? `<div class="grid" style="margin-top:10px">${f.pools.map(provCard).join("")}</div>`
+          : `<p class="empty">В providers.json нет ни одного пула с моделью ${esc(F.n)}. Чтобы подключить, нужен API-ключ и адрес провайдера: добавлю пул в providers.json и в цепочки нужных ролей.</p>`}`;
+    }).join("");
+}
+
+function tokenChart(){
+  const h = SYS.history.filter(e => num(e.total_tokens) != null);
+  if (!h.length) return `<div class="empty">История запросов пуста.</div>`;
+  const max = Math.max(...h.map(e => num(e.total_tokens))), bw = 22, gap = 6, ch = 150, w = h.length*(bw+gap) + 60;
+  const ticks = [0, 0.5, 1].map(f => Math.round(max*f));
+  return `<div class="chart"><svg width="${w}" height="${ch+46}" role="img" aria-label="Токены по запросам">
+    ${ticks.map(t => { const y = 8 + ch - (t/max)*ch; return `<line x1="50" x2="${w}" y1="${y}" y2="${y}" stroke="#1a2448"/><text x="44" y="${y+4}" fill="#8d98c6" font-size="10" text-anchor="end" font-family="JetBrains Mono, monospace">${fmtTok(t)}</text>`; }).join("")}
+    ${h.map((e, i) => { const v = num(e.total_tokens), bh = Math.max(2, v/max*ch), x = 56 + i*(bw+gap), y = 8 + ch - bh, c = FAM[e.fam].c;
+      const pr = num(e.prompt_tokens) || 0, ph = v ? pr/v*bh : 0;
+      return `<g><title>${esc(e.timestamp)} · ${esc(e.provider)} · ${esc(e.model)}\nвход ${fmtN(e.prompt_tokens)} · выход ${fmtN(e.completion_tokens)} · всего ${fmtN(v)} · ${fmtUsd(e.cost)}</title>
+        <rect x="${x}" y="${y}" width="${bw}" height="${bh}" fill="${hexA(c,.85)}"/><rect x="${x}" y="${y+bh-ph}" width="${bw}" height="${ph}" fill="${hexA(c,.35)}"/>
+        <text x="${x+bw/2}" y="${ch+24}" fill="#8d98c6" font-size="9" text-anchor="middle" font-family="JetBrains Mono, monospace">${esc(String(e.timestamp || "").slice(11, 16))}</text>
+        <text x="${x+bw/2}" y="${ch+36}" fill="#4f5a88" font-size="8" text-anchor="middle" font-family="JetBrains Mono, monospace">${esc(String(e.timestamp || "").slice(8, 10)+"."+String(e.timestamp || "").slice(5, 7))}</text></g>`; }).join("")}
+  </svg><div class="faint" style="font-size:12px;margin-top:4px">Каждый столбик: один ответ модели. Светлая часть: токены ответа, тёмная: токены запроса. Наведи, чтобы увидеть пул и модель.</div></div>`;
+}
+function viewTokens(){
+  const L = SYS.ledger;
+  if (!L) return `<div class="empty">Файл учёта token_usage.json рядом с мостом не найден. Его пишет мост ai-bridge после каждого ответа модели с полем usage. Пока файла нет, токены не на чем считать.</div>`
+    + (ST.activity.tokens.total ? tokensFromLog() : "");
+  const T = L.total_stats || {}, IB = L.initial_balances || {}, rows = SYS.tokRows.slice().sort((a, b) => (b.total || 0) - (a.total || 0));
+  const maxRow = Math.max(1, ...rows.map(r => r.total || 0));
+  const byDay = {}; SYS.history.forEach(e => { if (!e.ts) return; const d = new Date(e.ts*1000).toLocaleDateString("ru-RU"); byDay[d] = (byDay[d] || 0) + (num(e.total_tokens) || 0); });
+  const xy = rows.find(r => r.remaining != null);
+  const famRows = famList().map(k => SYS.fam[k]);
+  const famMax = Math.max(1, ...famRows.map(f => f.tokens));
+  return `<div class="kvs">
+      <div class="kv1 pk"><b>${fmtN(T.total_tokens)}</b><span>токенов всего</span></div>
+      <div class="kv1"><b>${fmtN(T.total_requests)}</b><span>запросов к моделям</span></div>
+      <div class="kv1"><b>${fmtN(T.total_prompt_tokens)}</b><span>токенов в запросах</span></div>
+      <div class="kv1"><b>${fmtN(T.total_completion_tokens)}</b><span>токенов в ответах</span></div>
+      <div class="kv1 yl"><b>${fmtUsd(T.total_cost_usd)}</b><span>стоимость по ответам API</span></div>
+    </div>
+    <h3 class="sec">Балансы <small>initial_balances и остатки из token_usage.json</small></h3>
+    <div class="grid">${xy ? `<div class="card" style="--c:${FAM[xy.fam].c}" data-open="pool:${esc(xy.key)}"><h4>${esc(xy.key)}</h4>
+        <div class="id">осталось ${fmtN(xy.remaining)} из ${fmtN(IB.xyvero_units)} единиц</div>
+        <div class="bar" style="--c:${FAM[xy.fam].c}"><i style="width:${IB.xyvero_units ? Math.max(1, xy.remaining/IB.xyvero_units*100) : 0}%"></i></div>
+        <p>Остаток считает сам мост: начальный баланс минус токены, записанные для этого пула. Проверки у провайдера нет.</p></div>` : ""}
+      ${Object.entries(IB).filter(([k]) => !/xyvero/i.test(k) || !xy).map(([k, v]) => `<div class="card" style="--c:var(--yellow)"><h4>${esc(k)}</h4><div class="id">начальное значение в файле: ${esc(v)}</div><p>Мост хранит это число, но не уменьшает его при расходе.</p></div>`).join("")}
+      ${rows.filter(r => r.credit != null).map(r => `<div class="card" style="--c:${FAM[r.fam].c}" data-open="pool:${esc(r.key)}"><h4>${esc(r.key)}</h4><div class="id">credit из последнего ответа API: ${esc(r.credit)}</div><p>Это значение провайдер прислал в поле usage. Что именно оно означает, знает только провайдер.</p></div>`).join("")}
+    </div>
+    <h3 class="sec">По семействам</h3>
+    <div class="list">${famRows.map(f => `<button data-open="fam:${f.key}" style="align-items:center">${sw(f.key)}<b style="min-width:90px">${esc(FAM[f.key].n)}</b>
+      <span class="bar" style="flex:1;--c:${FAM[f.key].c}"><i style="width:${f.tokens/famMax*100}%"></i></span>
+      <span class="r">${f.pools.length ? fmtN(f.tokens)+" ток. · "+fmtN(f.requests)+" запр. · "+fmtUsd(f.cost) : "не подключена"}</span></button>`).join("")}</div>
+    <h3 class="sec">По пулам <small>by_provider</small></h3>
+    <table><thead><tr><th>Пул</th><th>Модель (как ответил API)</th><th class="num">Запросов</th><th class="num">Вход</th><th class="num">Выход</th><th class="num">Всего</th><th class="num">Стоимость</th><th style="width:18%"></th></tr></thead><tbody>
+    ${rows.map(r => `<tr ${r.p ? `data-open="pool:${esc(r.key)}"` : ""}><td>${sw(r.fam)} ${esc(r.key)}${!r.p ? `<div class="faint" style="font-size:12px">${r.via.length ? "записано по имени модели: так мост пишет вызовы через Claude-шлюз (пулы "+r.via.map(p => esc(p.id)).join(", ")+")" : "пула с таким именем нет в providers.json"}</div>` : ""}</td>
+      <td class="mono muted">${esc(r.model || "—")}</td><td class="num">${fmtN(r.requests)}</td><td class="num">${fmtN(r.prompt)}</td><td class="num">${fmtN(r.completion)}</td><td class="num">${fmtN(r.total)}</td><td class="num">${fmtUsd(r.cost)}</td>
+      <td><div class="bar" style="--c:${FAM[r.fam].c}"><i style="width:${(r.total || 0)/maxRow*100}%"></i></div></td></tr>`).join("") || `<tr><td colspan="8" class="empty">Записей нет.</td></tr>`}
+    </tbody></table>
+    <h3 class="sec">Последние ответы моделей <small>${SYS.history.length} ${plural(SYS.history.length,"запись","записи","записей")} в history${Object.keys(byDay).length ? " · по дням: "+Object.entries(byDay).map(([d, v]) => esc(d)+" "+fmtTok(v)).join(", ") : ""}</small></h3>
+    ${tokenChart()}
+    <h3 class="sec">Откуда эти числа</h3>
+    <div class="prose"><ul>
+      <li>Файл <code>${esc(SYS.ledgerFile.path)}</code> (изменён ${fmtDate(SYS.ledgerFile.mtime)}). Его пишет мост после каждого ответа модели, в котором API прислал поле usage.</li>
+      <li>В history мост хранит только последние 50 ответов, итоги в total_stats и by_provider копятся за всё время.</li>
+      <li>Запросы через Claude Code CLI сюда не попадают: CLI не отдаёт мосту счётчик токенов.</li>
+      <li>Собственные токены Antigravity (Gemini) приложение не видит: они не проходят через мост.</li>
+    </ul></div>`;
+}
+function tokensFromLog(){
+  const t = ST.activity.tokens;
+  return `<h3 class="sec">Токены из журнала мостов</h3><div class="list">${Object.entries(t.by_model).map(([m, r]) => `<div>${esc(m)}<span class="r">${fmtN(r.total)} ток. · ${r.replies} отв.</span></div>`).join("")}</div>`;
+}
+
+function viewLog(){
   const cs = calls();
-  const head = `<p class="muted" style="margin:0 0 10px">Записывается прослойкой журнала у каждого моста. Папка журнала: <code>${esc(ST.activity.log_dir)}</code>. Хранится ${30} дней.</p>`;
-  keepScroll(() => pane().innerHTML = head + (cs.length ? `<table><thead><tr><th>Время</th><th>Кто вызвал</th><th>Инструмент</th><th>Модель</th><th class="num">Длилось</th><th>Итог</th><th>Запрос</th></tr></thead>
-    <tbody>${cs.map(callRow).join("")}</tbody></table>` : `<div class="empty">Вызовов пока не было. Как только Antigravity или Claude Code обратятся к мосту, вызов появится здесь.</div>`));
-  pane().querySelectorAll("tr[data-call]").forEach(tr => tr.onclick = () => openCall(tr.dataset.call));
+  const head = `<p class="lead">Записывает прослойка журнала у моста: кто вызвал, какой инструмент, какая роль и какой пул отвечали, сколько длилось и чем закончилось. Токены взяты из token_usage.json, если ответ модели попал в учёт во время вызова. Папка: <code>${esc(ST.activity.log_dir)}</code>, хранится 30 дней.</p>`;
+  return head + (cs.length ? `<table><thead><tr><th>Время</th><th>Кто</th><th>Инструмент</th><th>Роль</th><th>Пул</th><th class="num">Длилось</th><th class="num">Токены</th><th>Итог</th><th>Запрос</th></tr></thead><tbody>
+    ${cs.map(c => { const a = callAgent(c), pv = callProvs(c), tk = callTok(c), fails = (c.route || []).filter(r => r.ok === false).length;
+      const st = isRun(c) ? `<span class="tag warn">идёт</span>` : c.orphan ? `<span class="tag bad">оборван</span>` : c.error ? `<span class="tag bad">ошибка</span>` : `<span class="tag ok">готово</span>`;
+      return `<tr data-open="call:${esc(c.id)}"><td class="mono muted">${fmtTime(c.start)}</td><td>${esc(CLIENT[c.client]?.n || c.client)}</td><td class="mono">${esc(c.tool)}</td>
+        <td>${a ? esc(SYS.agent[a]?.name || a) : `<span class="faint">—</span>`}</td><td class="mono">${pv.length ? pv.map(esc).join(" › ") : `<span class="faint">—</span>`}${fails ? ` <span class="tag warn">${fails} запасн.</span>` : ""}${c.cli_missing ? ` <span class="tag warn">без CLI</span>` : ""}</td>
+        <td class="num">${fmtMs(c.ms)}</td><td class="num">${tk ? fmtN(tk) : "—"}</td><td>${st}</td><td class="trunc muted">${esc(callQuery(c))}</td></tr>`; }).join("")}
+    </tbody></table>` : `<div class="empty">Вызовов пока не было. Как только Antigravity или Claude Code обратятся к мосту, вызов появится здесь и в бегущей строке внизу.</div>`);
 }
 
-function renderCfg(){
+function viewProc(){
+  const groups = [["antigravity","Antigravity"],["claude","Claude Code"],["tap","Журнал вызовов (прослойка)"],["bridge","MCP-мосты"],["bridge-child","Задачи, запущенные мостами"],["gateway","Шлюз AI Duo (NewGenMMLLM)"],["app","Это приложение"]];
+  const err = ST.processes.error ? `<div class="banner" style="margin:0 0 10px">Не удалось прочитать список процессов: ${esc(ST.processes.error)}</div>` : "";
+  return err + groups.map(([g, title]) => {
+    const list = procs(g).sort((a, b) => (a.start || 0) - (b.start || 0));
+    if (g === "gateway" && !list.length) return "";
+    const mem = list.reduce((a, p) => a + (p.rss || 0), 0);
+    return `<h3 class="sec">${title} <small>${list.length} · ${fmtMB(mem)}</small></h3>` + (list.length ? `
+      <table><thead><tr><th class="num">PID</th><th>Процесс</th><th>Запущен</th><th class="num">Память</th><th class="num">CPU</th><th>Командная строка</th></tr></thead><tbody>
+      ${list.map(p => `<tr data-open="proc:${p.pid}"><td class="num">${p.pid}</td><td>${esc(p.name)}</td><td class="mono muted" style="white-space:nowrap">${fmtDate(p.start)}</td>
+        <td class="num">${fmtMB(p.rss || 0)}</td><td class="num">${p.cpu == null ? "—" : p.cpu.toFixed(1)+"%"}</td><td class="trunc mono muted" title="${esc(p.cmd)}">${esc(p.cmd)}</td></tr>`).join("")}
+      </tbody></table>` : `<div class="empty">Не запущено.</div>`);
+  }).join("");
+}
+
+function viewCfg(){
   const srv = servers();
-  const rows = srv.map((s,i) => `<tr class="click" data-srv="${i}"><td>${esc(CLIENT[s.client]?.n||s.client)}</td><td>${esc(s.name)}</td>
-    <td>${s.tappable ? (s.tapped ? `<span class="tag ok">подключён</span>` : `<span class="tag bad">нет</span>`) : `<span class="tag">не поддерживается</span>`}</td>
-    <td class="trunc muted" title="${esc(s.command+" "+s.args.join(" "))}">${esc(s.url || (s.command+" "+s.args.join(" ")))}</td><td class="trunc faint">${esc(s.config)}</td></tr>`).join("");
-  const provs = Object.values(CFG.bridges).flatMap(b => (b.providers||[]).map(p => ({...p, file:b.file, def:b.default_model})));
-  const rules = CFG.rules.map((r,i) => `<tr class="click" data-rule="${i}"><td>${esc(r.kind)}</td><td>${esc(base(r.path))}</td><td class="muted">${fmtDate(r.mtime)}</td><td class="trunc faint">${esc(r.path)}</td></tr>`).join("");
-  keepScroll(() => pane().innerHTML = `
-    <h3 class="sec">MCP-серверы в настройках <button class="btn" id="reload" style="margin-left:8px">Перечитать настройки</button></h3>
-    ${srv.length ? `<table><thead><tr><th>Клиент</th><th>Сервер</th><th>Журнал</th><th>Команда</th><th>Файл настроек</th></tr></thead><tbody>${rows}</tbody></table>` : `<div class="empty">В настройках Antigravity и Claude Code не найдено MCP-серверов.</div>`}
-    <h3 class="sec">Пулы моделей в multillm-bridge</h3>
-    ${provs.length ? `<table><thead><tr><th>Пул</th><th>Адрес</th><th class="num">Приоритет</th><th>Ключ</th><th>Модели</th></tr></thead><tbody>
-      ${provs.map(p => `<tr><td>${esc(p.name)}</td><td class="muted">${esc(p.base_url)}</td><td class="num">${esc(p.priority)}</td>
-        <td>${p.has_key?`<span class="tag ok">задан</span>`:`<span class="tag bad">нет</span>`}</td><td class="muted">${p.models.map(m => m===p.def?`<b style="color:var(--fg)">${esc(m)}</b>`:esc(m)).join(", ")}</td></tr>`).join("")}
-      </tbody></table><p class="faint" style="margin:6px 0 0">Жирным выделена модель по умолчанию. Значения ключей приложение не показывает и никуда не передаёт.</p>` : `<div class="empty">Пулы не найдены.</div>`}
-    <h3 class="sec">Правила и навыки</h3>
-    ${rules ? `<table><thead><tr><th>Что это</th><th>Файл</th><th>Изменён</th><th>Путь</th></tr></thead><tbody>${rules}</tbody></table>` : `<div class="empty">Файлов правил не найдено.</div>`}
+  const inline = SYS.providers.filter(p => p.keyInline);
+  const hard = Object.values(CFG.bridges).filter(b => b.hardcoded_keys);
+  return `<h3 class="sec">MCP-серверы в настройках <button class="btn" data-act="reload">Перечитать настройки</button></h3>
+    ${srv.length ? `<table><thead><tr><th>Клиент</th><th>Сервер</th><th>Журнал</th><th>Команда</th><th>Файл настроек</th></tr></thead><tbody>
+      ${srv.map(s => `<tr data-open="server:${esc(s.name)}"><td>${esc(CLIENT[s.client]?.n || s.client)}</td><td class="mono">${esc(s.name)}</td>
+        <td>${s.tappable ? (s.tapped ? `<span class="tag ok">подключён</span>` : `<span class="tag bad">нет</span>`) : `<span class="tag">не поддерживается</span>`}</td>
+        <td class="trunc mono muted" title="${esc(s.command+" "+s.args.join(" "))}">${esc(s.url || (s.command+" "+s.args.join(" ")))}</td><td class="trunc mono faint">${esc(s.config)}</td></tr>`).join("")}
+      </tbody></table>` : `<div class="empty">В настройках Antigravity и Claude Code не найдено MCP-серверов.</div>`}
+    <h3 class="sec">Файлы мультимодели <small>читаются при каждом обновлении, ключи скрыты</small></h3>
+    ${SYS.files.length ? `<table><thead><tr><th>Файл</th><th>Что в нём</th><th>Изменён</th><th>Путь</th></tr></thead><tbody>
+      ${SYS.files.map(f => `<tr data-open="sysfile:${esc(f.path)}"><td class="mono">${esc(f.name)}</td><td class="muted">${esc({"providers.json":"пулы моделей: адрес, модель, ключ","agents.json":"роли и их цепочки пулов","token_usage.json":"учёт токенов и балансов",".env":"переменные окружения (только имена)"}[f.name] || "")}</td>
+        <td class="mono muted">${fmtDate(f.mtime)}</td><td class="trunc mono faint">${esc(f.path)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Рядом с мостами нет providers.json, agents.json или token_usage.json.</div>`}
+    ${inline.length || hard.length ? `<p class="note" style="margin-top:10px"><b>Ключи API.</b> ${inline.length ? `В providers.json ключ записан прямо в файле у ${inline.length} ${plural(inline.length,"пула","пулов","пулов")}: ${inline.map(p => esc(p.id)).join(", ")}.` : ""} ${hard.map(b => `В ${esc(base(b.file))} в коде найдено ключей: ${b.hardcoded_keys}.`).join(" ")} Приложение их не показывает и никуда не отправляет.</p>` : ""}
+    <h3 class="sec">Навыки ролей <small>${SYS.skills.length}</small></h3>
+    ${SYS.skills.length ? `<table><thead><tr><th>Навык</th><th>Название</th><th>Роли</th><th>Путь</th></tr></thead><tbody>
+      ${SYS.skills.map(k => `<tr data-open="skill:${esc(k.name)}"><td class="mono">${esc(k.name)}</td><td>${esc(k.title || (k.missing ? "файл не найден" : ""))}</td>
+        <td class="muted">${SYS.agents.filter(a => a.skills.includes(k.name)).map(a => esc(a.id)).join(", ")}</td><td class="trunc mono faint">${esc(k.path || "")}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Нет.</div>`}
+    <h3 class="sec">Правила агентов</h3>
+    ${CFG.rules.length ? `<table><thead><tr><th>Что это</th><th>Файл</th><th>Изменён</th><th>Путь</th></tr></thead><tbody>
+      ${CFG.rules.map(r => `<tr data-open="rule:${esc(r.path)}"><td>${esc(r.kind)}</td><td class="mono">${esc(base(r.path))}</td><td class="mono muted">${fmtDate(r.mtime)}</td><td class="trunc mono faint">${esc(r.path)}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Файлов правил не найдено.</div>`}
     <h3 class="sec">Приложение</h3>
-    <dl class="kv"><dt>Папка</dt><dd>${esc(CFG.app.dir)}</dd><dt>Python</dt><dd>${esc(CFG.app.python)}</dd><dt>Журнал</dt><dd>${esc(CFG.activity_dir)}</dd>
-      <dt>Claude CLI</dt><dd>${esc(CFG.claude_cli || "не найден")}</dd><dt>Настройки прочитаны</dt><dd>${fmtTime(CFG.ts)}</dd></dl>`);
-  $("#reload").onclick = () => loadConfig(true);
-  pane().querySelectorAll("tr[data-srv]").forEach(tr => tr.onclick = () => openServer(srv[+tr.dataset.srv].name));
-  pane().querySelectorAll("tr[data-rule]").forEach(tr => tr.onclick = () => openRule(CFG.rules[+tr.dataset.rule]));
+    <dl class="kv"><dt>Компьютер</dt><dd>${esc(CFG.host)}</dd><dt>Папка</dt><dd class="mono">${esc(CFG.app.dir)}</dd><dt>Python</dt><dd class="mono">${esc(CFG.app.python)}</dd><dt>Журнал</dt><dd class="mono">${esc(CFG.activity_dir)}</dd>
+      <dt>Claude CLI</dt><dd>${esc(CFG.claude_cli || "не найден")}</dd><dt>Настройки прочитаны</dt><dd>${fmtTime(CFG.ts)}</dd></dl>`;
 }
 
-function renderHow(){
-  if (pane().dataset.view === "how") return;
-  pane().innerHTML = `<div class="prose">
-    <h3 class="sec">Что показывает приложение</h3>
-    <p>Всё на экранах собрано с этого компьютера в момент показа. Ничего не придумано и не отправляется в интернет: приложение работает только по адресу 127.0.0.1 и только читает.</p>
+function viewHow(){
+  const core = SYS.core?.name || "мост";
+  return `<div class="prose">
+    <h3 class="sec">Как работает твоя мультимодель</h3>
     <ul>
-      <li><b>Процессы</b>: список процессов Windows (Antigravity, Claude Code, мосты и то, что мосты запустили). Обновляется каждые 4 секунды.</li>
-      <li><b>MCP-серверы</b>: файл <code>~/.gemini/config/mcp_config.json</code> у Antigravity и <code>~/.claude.json</code> у Claude Code.</li>
-      <li><b>Инструменты и пулы моделей</b>: приложение запускает файл моста и читает его списки инструментов и пулов. Ключи только проверяются на наличие.</li>
-      <li><b>Журнал вызовов</b>: прослойка <code>council_tap.py</code> стоит между клиентом и мостом. Она пропускает каждый запрос без изменений и записывает, кто вызвал, какой инструмент, с какими параметрами, сколько длилось и чем закончилось. Записи лежат в <code>~/.council/activity</code>.</li>
-      <li><b>Правила</b>: GEMINI.md, правила и навыки Antigravity, CLAUDE.md, агенты и навыки Claude Code. Их можно открыть и прочитать.</li>
+      <li><b>Antigravity</b> ведёт задачу на своей модели Gemini. По правилам из GEMINI.md он решает, когда звать мост ${esc(core)}.</li>
+      <li><b>${esc(core)}</b> (MCP-мост) получает вызов инструмента: ${SYS.tools.map(t => `<code>${esc(t.name)}</code>`).join(", ") || "список недоступен"}.</li>
+      <li><b>Роли</b> (agents.json): у каждой есть описание, навыки и цепочка пулов. <code>agent_run</code> отдаёт задачу роли, мост собирает подсказку из описания роли и файлов навыков и зовёт основной пул.</li>
+      <li><b>Пулы</b> (providers.json): адрес API и модель. Если пул ответил ошибкой или лимитом, мост берёт следующий из цепочки роли.</li>
+      <li><b>Учёт токенов</b>: после каждого ответа с полем usage мост дописывает token_usage.json. Отсюда экран «Токены».</li>
+      <li><b>Claude</b>: инструменты <code>claude_*</code> запускают Claude Code CLI. ${cliOk() ? "CLI на этом компьютере найден." : "CLI на этом компьютере не найден, поэтому мост отправляет такие запросы в API-шлюз из providers.json (пулы "+SYS.providers.filter(p => p.alias === "claude" || (p.fam === "claude" && !p.cli)).map(p => esc(p.id)+" → "+esc(p.model)).join(", ")+")."}</li>
+    </ul>
+    <h3 class="sec">Что показывает приложение</h3>
+    <p>Всё на экранах собрано с этого компьютера в момент показа. Приложение работает только по адресу 127.0.0.1, ничего не отправляет в интернет и ничего не меняет.</p>
+    <ul>
+      <li><b>Система, роли, модели</b>: providers.json, agents.json и файлы навыков из папки моста. Инструменты: список, который мост отдаёт сам.</li>
+      <li><b>Токены</b>: token_usage.json, который пишет мост.</li>
+      <li><b>Журнал</b>: прослойка <code>council_tap.py</code> между Antigravity и мостом. Она пропускает запросы без изменений и записывает время, инструмент, параметры, роль, пул и результат.</li>
+      <li><b>Процессы</b>: список процессов Windows, обновляется каждые 4 секунды.</li>
+      <li><b>Справка о семействах моделей</b> (DeepSeek, GLM и другие) написана заранее и помечена словом «справка»: в твоих файлах этих описаний нет.</li>
     </ul>
     <h3 class="sec">Чего приложение не видит</h3>
     <ul>
-      <li>Внутренние субагенты Antigravity (<code>define_subagent</code>, <code>invoke_subagent</code>) и его собственные вызовы Gemini. Они не проходят через мосты, поэтому видны только как процессы Antigravity.</li>
-      <li>Встроенные инструменты Claude Code (чтение файлов, правки, команды). Видны только вызовы MCP-мостов.</li>
-      <li>Расход токенов: мосты не возвращают эти данные, поэтому их нет и в журнале.</li>
-      <li>Вызовы мостов, у которых журнал не подключён. Такие мосты отмечены красным.</li>
-    </ul>
-    <h3 class="sec">Как устроена связка</h3>
-    <ul>
-      <li><b>Antigravity</b> (Gemini) ведёт задачу и по правилам из GEMINI.md решает, когда звать Claude или совет моделей.</li>
-      <li><b>claude-bridge</b> запускает <code>claude -p</code> на этом компьютере: <code>claude_review</code> и <code>claude_ask</code> только читают проект, <code>claude_implement</code> может менять файлы.</li>
-      <li><b>multillm-bridge</b> отправляет вопрос в пулы моделей по API. Если первый пул ответил ошибкой, пробует следующий.</li>
-      <li><b>Claude Code</b> тоже подключён к multillm-bridge и может спрашивать другие модели.</li>
+      <li>Доступен ли пул прямо сейчас: приложение не обращается к API. Ошибки и переходы на запасной пул видны в журнале.</li>
+      <li>Внутренних субагентов Antigravity и его собственные токены Gemini.</li>
+      <li>Токены запросов через Claude Code CLI и через инструмент <code>model_ask</code>, если ответ пришёл без поля usage.</li>
+      <li>Какая модель ответила на <code>model_ask</code>, если мост не написал об этом строку в журнал: видно только пул из параметров вызова.</li>
     </ul>
     <h3 class="sec">Команды</h3>
     <ul>
       <li><code>python council_app.py --status</code>: текстовая сводка в консоли.</li>
-      <li><code>python council_app.py --wire</code>: подключить журнал (делает резервные копии настроек).</li>
-      <li><code>python council_app.py --unwire</code>: вернуть исходные команды мостов.</li>
+      <li><code>python council_app.py --wire</code> / <code>--unwire</code>: подключить или убрать журнал (с резервными копиями настроек).</li>
     </ul></div>`;
-  pane().dataset.view = "how";
 }
 
 // ---------- dossier
-function openDossier(path, html, refresh){
-  $("#dpath").textContent = path; $("#dbody").innerHTML = html;
-  $("#app").classList.remove("closed"); sel = {refresh}; requestAnimationFrame(resize);
+const FILETEXT = {};
+function openRef(ref, fromCanvas){
+  if (!ref) return;
+  if (ref === "how") return setView("how");
+  if (!fromCanvas && view === "sys") { const id = refToNode(ref); if (id && NODES.has(id) && focusable(id)) setFocus(id); }
+  selRef = ref; $("#app").classList.add("open"); lastDossier = ""; renderDossier(); $("#dossier").scrollTop = 0; requestAnimationFrame(resize);
 }
-$("#close").onclick = () => { $("#app").classList.add("closed"); sel = null; requestAnimationFrame(resize); };
-addEventListener("keydown", e => { if (e.key === "Escape") $("#close").click(); });
+function closeDossier(){ selRef = null; $("#app").classList.remove("open"); requestAnimationFrame(resize); }
+$("#close").onclick = closeDossier;
+let lastDossier = "";
+function renderDossier(){
+  const [kind, ...rest] = selRef.split(":"), id = rest.join(":");
+  const D = {role:dRole, pool:dPool, fam:dFam, core:dCore, tool:dTool, skill:dSkill, call:dCall, proc:dProc, client:dClient, server:dServer, sysfile:dSysFile, rule:dRule}[kind];
+  if (!D) return;
+  const [path, html] = D(id);
+  if (html === lastDossier) return;
+  $("#dpath").textContent = "// " + path; $("#dbody").innerHTML = html; lastDossier = html;
+}
+function delegate(el){
+  el.addEventListener("click", e => {
+    const a = e.target.closest("[data-act]"); if (a && a.dataset.act === "reload") return loadConfig(true);
+    const t = e.target.closest("[data-open]"); if (t) openRef(t.dataset.open);
+  });
+}
+delegate($("#pane")); delegate($("#dbody")); delegate($("#fams"));
+const callList = (cs, empty) => cs.length ? `<div class="list">${cs.slice(0, 15).map(c => { const tk = callTok(c);
+  return `<button data-open="call:${esc(c.id)}"><span class="dot ${isRun(c) ? "run" : c.error || c.orphan ? "bad" : "ok"}"></span>${esc(c.tool)}<span class="muted">${esc(callProvs(c).slice(-1)[0] || "")}</span><span class="r">${fmtTime(c.start)} · ${fmtMs(c.ms)}${tk ? " · "+fmtN(tk)+" ток." : ""}</span></button>`; }).join("")}</div>` : `<div class="empty">${empty}</div>`;
+const procList = list => list.length ? `<div class="list">${list.map(p => `<button data-open="proc:${p.pid}"><span class="dot ok"></span>${esc(p.name)} <span class="faint">${p.pid}</span><span class="r">${fmtMB(p.rss || 0)} · с ${fmtDate(p.start)}</span></button>`).join("")}</div>` : `<div class="empty">Не запущено.</div>`;
+const tokBlock = r => r ? `<dl class="kv"><dt>Запросов</dt><dd>${fmtN(r.requests)}</dd><dt>Вход</dt><dd>${fmtN(r.prompt)}</dd><dt>Выход</dt><dd>${fmtN(r.completion)}</dd><dt>Всего</dt><dd><b style="color:var(--cyan)">${fmtN(r.total)}</b></dd><dt>Стоимость</dt><dd>${fmtUsd(r.cost)}</dd>${r.remaining != null ? `<dt>Остаток</dt><dd>${fmtN(r.remaining)} единиц</dd>` : ""}${r.credit != null ? `<dt>credit (API)</dt><dd>${esc(r.credit)}</dd>` : ""}<dt>Модель в ответах</dt><dd class="mono">${esc(r.model || "—")}</dd></dl>` : `<div class="empty">В token_usage.json для этого пула записей нет: им ещё не пользовались или ответы приходили без поля usage.</div>`;
 
-function callList(cs, empty){
-  if (!cs.length) return `<div class="empty">${empty}</div>`;
-  return `<div class="list">${cs.slice(0,15).map(c => `<button data-call="${esc(c.id)}"><span class="dot ${c.end==null?"run":c.error?"bad":"ok"}"></span>${esc(c.tool)}<span class="muted">${esc(c.model||"")}</span><span class="r">${fmtTime(c.start)} · ${fmtMs(c.ms)}</span></button>`).join("")}</div>`;
+function dRole(id){
+  const a = SYS.agent[id]; if (!a) return ["роль", `<h2>${esc(id)}</h2><div class="empty">Роли больше нет в agents.json.</div>`];
+  const cs = agentCalls(id);
+  const steps = a.chain.map((pid, i) => { const p = SYS.prov[pid], k = p ? p.fam : famOf(pid), r = provTok(pid);
+    const fails = cs.reduce((n, c) => n + (c.route || []).filter(x => x.provider === pid && x.ok === false).length, 0);
+    return `<button class="step" data-open="pool:${esc(pid)}" style="--c:${FAM[k].c}"><span class="n">${String(i+1).padStart(2, "0")}</span><span><b>${esc(pid)}</b> <span class="muted">${i === 0 ? "основной" : "запасной"}</span>
+      <small>${p ? esc(p.model)+" · "+esc(FAM[k].n)+(p.cli ? " · CLI "+(cliOk() ? "найден" : "не установлен") : " · "+esc(p.host)) : "пула нет в providers.json"}${r ? " · "+fmtTok(r.total)+" ток." : ""}${fails ? " · переходов дальше: "+fails : ""}</small></span></button>`; }).join("");
+  const inCons = ["architect","developer","reviewer"].includes(id) && SYS.tools.some(t => t.name === "consilium");
+  return ["роль", `<h2>${esc(a.full)}</h2>
+    <div class="meta"><span class="tag cy">${esc(a.id)}</span>${a.isDefault ? `<span class="tag pk">роль по умолчанию</span>` : ""}<span class="tag ${a.write ? "warn" : ""}">${a.write ? "может менять файлы" : "только чтение"}</span>${inCons ? `<span class="tag">участник консилиума</span>` : ""}</div>
+    <div class="blk"><h5>Что делает</h5><p>${esc(a.desc || "Описания в agents.json нет.")}</p></div>
+    <div class="blk"><h5>Цепочка моделей</h5><div class="ladder">${steps || `<div class="step"><span class="n">—</span><span>пулы не указаны</span></div>`}</div>
+      <p class="faint" style="font-size:12px;margin-top:6px">Мост зовёт пулы сверху вниз и переходит к следующему, если пул ответил ошибкой или лимитом.</p></div>
+    <div class="blk"><h5>Навыки</h5>${a.skills.length ? `<div class="list">${a.skills.map(k => `<button data-open="skill:${esc(k)}"><span style="color:var(--yellow)">◆</span>${esc(k)}<span class="r">${esc(SYS.skill[k]?.title || (SYS.skill[k]?.missing ? "файл не найден" : ""))}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
+    <div class="blk"><h5>Доступ</h5><dl class="kv"><dt>Инструменты</dt><dd class="mono">${esc(a.tools || "—")}</dd><dt>Запись файлов</dt><dd>${a.write ? "разрешена" : "запрещена"}</dd></dl></div>
+    <div class="blk"><h5>Как вызвать</h5><pre class="box">agent_run(agent="${esc(a.id)}", task="…")</pre></div>
+    <div class="blk"><h5>Вызовы из журнала</h5>${callList(cs, "Эту роль ещё не вызывали, пока работает журнал.")}</div>`];
 }
-function bindCalls(){ $("#dbody").querySelectorAll("[data-call]").forEach(b => b.onclick = () => openCall(b.dataset.call)); }
-function procList(list){
-  if (!list.length) return `<div class="empty">Не запущено.</div>`;
-  return `<div class="list">${list.map(p => `<button data-pid="${p.pid}"><span class="dot ok"></span>${esc(p.name)} <span class="faint">${p.pid}</span><span class="r">${fmtMB(p.rss||0)} · с ${fmtDate(p.start)}</span></button>`).join("")}</div>`;
+function dPool(id){
+  const p = SYS.prov[id], r = provTok(id);
+  if (!p) return ["пул", `<h2>${esc(id)}</h2><div class="blk"><h5>Токены</h5>${tokBlock(r)}</div>`];
+  const F = FAM[p.fam], cs = provCalls(id);
+  const fails = cs.reduce((n, c) => n + (c.route || []).filter(x => x.provider === id && x.ok === false).length, 0);
+  const last = SYS.history.filter(e => e.provider === id && e.ts).sort((a, b) => b.ts - a.ts)[0];
+  return ["пул модели", `<h2>${esc(p.id)}</h2>
+    <div class="meta"><span class="tag" style="color:${F.c};border-color:${hexA(F.c,.5)}">${esc(F.n)}</span>${p.isDefault ? `<span class="tag pk">пул по умолчанию</span>` : ""}${p.tier ? `<span class="tag">${esc(p.tier)}</span>` : ""}${p.privacy ? `<span class="tag">${esc(p.privacy)}</span>` : ""}</div>
+    ${p.alias ? `<div class="banner" style="margin:0">Имя пула похоже на ${esc(FAM[p.alias].n)}, но в поле model указана ${esc(p.model)}: на запросы к этому пулу отвечает ${esc(F.n)}.</div>` : ""}
+    ${p.desc ? `<div class="blk"><h5>Описание из providers.json</h5><p>${esc(p.desc)}</p></div>` : ""}
+    <div class="blk"><h5>Подключение</h5><dl class="kv"><dt>Модель</dt><dd class="mono">${esc(p.model || "—")}</dd><dt>Тип</dt><dd>${esc(p.type || "—")}</dd>
+      ${p.cli ? `<dt>Команда</dt><dd class="mono">${esc(p.command)}</dd><dt>CLI на ПК</dt><dd>${cliOk() ? esc(CFG.claude_cli) : "не найден"}</dd>` : `<dt>Адрес</dt><dd class="mono">${esc(p.base || "—")}</dd>`}
+      <dt>Ключ</dt><dd>${p.cli ? "не нужен" : p.keyInline ? "записан в providers.json" : p.keyEnv ? "берётся из переменной окружения" : "не указан"}</dd></dl></div>
+    <div class="blk"><h5>Кто использует</h5>${p.usedBy.length ? `<div class="list">${p.usedBy.map(u => `<button data-open="role:${esc(u.agent)}">${esc(SYS.agent[u.agent]?.name || u.agent)}<span class="r">${u.pos === 0 ? "основной" : "запасной №"+u.pos}</span></button>`).join("")}</div>` : `<div class="empty">Ни одна роль. Пул можно вызвать напрямую: model_ask(provider="${esc(p.id)}").</div>`}</div>
+    <div class="blk"><h5>Токены</h5>${tokBlock(r)}${last ? `<p class="faint" style="font-size:12px;margin-top:6px">Последний ответ с учётом: ${esc(last.timestamp)}</p>` : ""}</div>
+    <div class="blk"><h5>Справка о семействе</h5><p class="muted">${esc(F.vendor)}. ${esc(F.about)}</p></div>
+    <div class="blk"><h5>Вызовы из журнала</h5>${fails ? `<p style="color:var(--warn);margin-bottom:6px">Переходов на запасной пул после ошибки: ${fails}</p>` : ""}${callList(cs, "Через журнал вызовов этого пула ещё не было.")}</div>`];
 }
-function bindProcs(){ $("#dbody").querySelectorAll("[data-pid]").forEach(b => b.onclick = () => openProc(+b.dataset.pid)); }
+function dFam(k){
+  const F = FAM[k], f = SYS.fam[k];
+  return ["семейство моделей", `<h2 style="color:${F.c}">${esc(F.n)}</h2>
+    <div class="meta"><span class="tag">${esc(F.vendor)}</span>${f.pools.length ? `<span class="tag ok">подключено: ${f.pools.length}</span>` : `<span class="tag bad">не подключена</span>`}</div>
+    <div class="blk"><h5>Справка</h5><p class="muted">${esc(F.about)}</p></div>
+    <div class="blk"><h5>Пулы у тебя</h5>${f.pools.length ? `<div class="list">${f.pools.map(p => `<button data-open="pool:${esc(p.id)}">${esc(p.id)}<span class="muted">${esc(p.model)}</span><span class="r">${fmtTok(provTok(p.id)?.total)} ток.</span></button>`).join("")}</div>`
+      : `<div class="empty">В providers.json нет пула с моделью ${esc(F.n)}. Чтобы подключить: нужен API-ключ и адрес провайдера. Пул добавляется в providers.json (type, base_url, model, api_key_env), а затем в цепочки нужных ролей в agents.json.</div>`}</div>
+    <div class="blk"><h5>Роли</h5>${f.roles.length ? `<div class="list">${f.roles.map(a => `<button data-open="role:${esc(a.id)}">${esc(a.name)}<span class="r">${S_pos(a, k)}</span></button>`).join("")}</div>` : `<div class="empty">Ни одна роль не использует эту модель.</div>`}</div>
+    <div class="blk"><h5>Токены</h5>${f.requests ? `<dl class="kv"><dt>Запросов</dt><dd>${fmtN(f.requests)}</dd><dt>Токенов</dt><dd>${fmtN(f.tokens)}</dd><dt>Стоимость</dt><dd>${fmtUsd(f.cost)}</dd></dl>` : `<div class="empty">Записей в token_usage.json нет.</div>`}</div>`];
+}
+const S_pos = (a, k) => { const i = a.chain.findIndex(id => SYS.prov[id]?.fam === k); return i === 0 ? "основная модель" : "запасная №"+i; };
+function dCore(){
+  const s = SYS.core; if (!s) return ["ядро", `<h2>Мост</h2><div class="empty">MCP-мостов в настройках нет.</div>`];
+  const b = SYS.bridge, cs = calls().filter(c => c.server === s.name);
+  const entries = servers().filter(x => x.name === s.name);
+  return ["ядро системы", `<h2>${esc(s.name)}</h2>
+    <div class="meta">${entries.map(e => `<span class="tag ${e.tapped ? "ok" : e.tappable ? "bad" : ""}">${esc(CLIENT[e.client]?.n || e.client)}: ${e.tapped ? "журнал есть" : e.tappable ? "без журнала" : "вне журнала"}</span>`).join("")}</div>
+    ${b.error ? `<div class="banner" style="margin:0">Не удалось прочитать мост: ${esc(b.error)}</div>` : ""}
+    <div class="blk"><h5>Что это</h5><p>MCP-мост, через который Antigravity зовёт модели. В нём ${SYS.agents.length} ${plural(SYS.agents.length,"роль","роли","ролей")} и ${SYS.providers.length} ${plural(SYS.providers.length,"пул","пула","пулов")} моделей. Роль по умолчанию: ${esc(SYS.defAgent || "—")}, пул по умолчанию: ${esc(SYS.defProv || "—")}.</p></div>
+    <div class="blk"><h5>Инструменты</h5>${SYS.tools.length ? `<div class="list">${SYS.tools.map(t => `<button data-open="tool:${esc(t.name)}"><span class="mono">${esc(t.name)}</span><span class="r">${cs.filter(c => c.tool === t.name).length} выз.</span></button>`).join("")}</div>` : `<div class="empty">Список недоступен.</div>`}</div>
+    <div class="blk"><h5>Запуск</h5><dl class="kv"><dt>Файл</dt><dd class="mono">${esc(s.file || "—")}</dd><dt>Изменён</dt><dd>${fmtDate(b.mtime)}</dd><dt>Python</dt><dd class="mono">${esc(s.command)}</dd><dt>Переменные</dt><dd>${esc(s.env_keys.join(", ") || "нет")}</dd>
+      ${b.claude_model ? `<dt>Модель Claude</dt><dd>${esc(b.claude_model)}</dd>` : ""}<dt>Claude CLI</dt><dd>${cliOk() ? esc(CFG.claude_cli) : "не найден на ПК"}</dd></dl></div>
+    <div class="blk"><h5>Процессы сейчас</h5>${procList(procs().filter(p => (p.group === "tap" || p.group === "bridge") && s.file && p.cmd.toLowerCase().includes(base(s.file).toLowerCase())))}</div>
+    <div class="blk"><h5>Последние вызовы</h5>${callList(cs, "Вызовов пока не было.")}</div>`];
+}
+function dTool(name){
+  const t = SYS.tools.find(x => x.name === name) || {}, cs = calls().filter(c => c.tool === name && c.server === SYS.core?.name);
+  const done = cs.filter(c => c.ms != null), errs = cs.filter(c => c.error).length;
+  return ["инструмент моста", `<h2 class="mono">${esc(name)}</h2><div class="meta"><span class="tag">${esc(SYS.core?.name)}</span></div>
+    <div class="blk"><h5>Описание из моста</h5><p>${esc(t.description || "нет описания")}</p></div>
+    <div class="blk"><h5>Параметры</h5><p class="mono">${(t.params || []).map(esc).join(", ") || "нет"}</p></div>
+    <div class="blk"><h5>По журналу</h5><dl class="kv"><dt>Вызовов</dt><dd>${cs.length}</dd><dt>С ошибкой</dt><dd>${errs}</dd>
+      <dt>Среднее время</dt><dd>${done.length ? fmtMs(Math.round(done.reduce((a, c) => a + c.ms, 0)/done.length)) : "—"}</dd><dt>Последний</dt><dd>${cs[0] ? fmtAgo(cs[0].start) : "—"}</dd></dl></div>
+    <div class="blk"><h5>Вызовы</h5>${callList(cs, "Вызовов не записано.")}</div>`];
+}
+function fileText(path){
+  if (FILETEXT[path] == null) { FILETEXT[path] = "загрузка…";
+    getJSON("/api/file?path=" + encodeURIComponent(path)).then(d => { FILETEXT[path] = d.text; lastDossier = ""; if (selRef) renderDossier(); })
+      .catch(() => { FILETEXT[path] = "Не удалось прочитать файл."; lastDossier = ""; if (selRef) renderDossier(); }); }
+  return FILETEXT[path];
+}
+function dSkill(name){
+  const k = SYS.skill[name]; if (!k) return ["навык", `<h2>${esc(name)}</h2>`];
+  const roles = SYS.agents.filter(a => a.skills.includes(name));
+  return ["навык роли", `<h2>${esc(k.title || name)}</h2><div class="meta"><span class="tag" style="color:var(--yellow)">◆ ${esc(name)}</span></div>
+    <div class="blk"><h5>Роли</h5>${roles.length ? `<div class="list">${roles.map(a => `<button data-open="role:${esc(a.id)}">${esc(a.name)}<span class="r">${esc(a.id)}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
+    ${k.missing ? `<div class="empty">Файл навыка не найден в папке skills рядом с мостом.</div>` : `<div class="faint mono" style="word-break:break-all">${esc(k.path)}</div><pre class="box">${esc(fileText(k.path))}</pre>`}`];
+}
+function dCall(id){
+  const c = calls().find(x => x.id === id); if (!c) return ["вызов", `<h2>Вызов</h2><div class="empty">Запись больше не хранится.</div>`];
+  const led = ST.activity.ledger_calls?.[c.id] || [];
+  const route = (c.route || []).map((r, i) => { const p = SYS.prov[r.provider], k = p ? p.fam : famOf(r.provider);
+    return `<button class="step" data-open="pool:${esc(r.provider)}" style="--c:${r.ok === false ? "var(--red)" : FAM[k].c}"><span class="n">${String(i+1).padStart(2, "0")}</span><span><b>${esc(r.provider)}</b> <span class="muted">${r.agent ? "роль "+esc(r.agent) : ""}</span>
+      <small>${p ? esc(p.model) : ""}${r.ok === false ? " · не ответил: "+esc(r.why || "ошибка")+", переход дальше" : ""} · ${fmtTime(r.ts)}</small></span></button>`; }).join("");
+  return ["вызов", `<h2 class="mono">${esc(c.tool)}</h2>
+    <div class="meta">${isRun(c) ? `<span class="tag warn">идёт ${esc(fmtAgo(c.start).replace(" назад", ""))}</span>` : c.orphan ? `<span class="tag bad">оборван: процесс моста завершился без ответа</span>` : c.error ? `<span class="tag bad">ошибка</span>` : `<span class="tag ok">готово</span>`}<span class="tag">${esc(c.server)}</span>${c.consilium ? `<span class="tag pk">консилиум</span>` : ""}${c.cli_missing ? `<span class="tag warn">Claude CLI не найден: ушло в шлюз</span>` : ""}${c.limit ? `<span class="tag bad">лимит: ${esc(c.limit)}</span>` : ""}</div>
+    <div class="blk"><h5>Кто и когда</h5><dl class="kv"><dt>Вызвал</dt><dd>${esc(CLIENT[c.client]?.n || c.client)}${c.client_info ? ` <span class="faint">(${esc(c.client_info)})</span>` : ""}</dd>
+      <dt>Начало</dt><dd>${new Date(c.start*1000).toLocaleString("ru-RU")}</dd><dt>Длилось</dt><dd>${fmtMs(c.ms)}</dd>${callAgent(c) ? `<dt>Роль</dt><dd>${esc(callAgent(c))}</dd>` : ""}${c.chars != null ? `<dt>Ответ</dt><dd>${fmtN(c.chars)} символов</dd>` : ""}</dl></div>
+    ${route ? `<div class="blk"><h5>Маршрут по пулам</h5><div class="ladder">${route}</div></div>` : c.provider ? `<div class="blk"><h5>Пул</h5><p class="mono">${esc(c.provider)}</p></div>` : ""}
+    <div class="blk"><h5>Токены</h5>${led.length ? `<div class="list">${led.map(e => `<div>${esc(e.provider)}<span class="muted mono">${esc(e.model)}</span><span class="r">${fmtN(e.prompt_tokens)} + ${fmtN(e.completion_tokens)} = ${fmtN(e.total_tokens)} · ${fmtUsd(e.cost)}</span></div>`).join("")}</div>`
+      : (c.usage || []).length ? `<div class="list">${c.usage.map(u => `<div>${esc(u.model || "")}<span class="r">${fmtN(u.prompt)} + ${fmtN(u.completion)} = ${fmtN(u.total)}</span></div>`).join("")}</div>`
+      : `<div class="empty">${isRun(c) ? "Вызов ещё идёт." : "В token_usage.json нет записи за время этого вызова: ответ пришёл без usage или через Claude CLI."}</div>`}</div>
+    <div class="blk"><h5>Параметры запроса</h5><pre class="box">${esc(JSON.stringify(c.args, null, 2))}</pre></div>
+    <div class="blk"><h5>Начало ответа</h5>${c.preview != null ? `<pre class="box">${esc(c.preview)}</pre>` : `<div class="empty">Ответа ещё нет.</div>`}</div>
+    <div class="blk"><h5>Сообщения моста</h5>${c.logs.length ? `<pre class="box">${c.logs.map(l => esc(fmtTime(l.ts)+"  "+l.line)).join("\n")}</pre>` : `<div class="empty">Нет.</div>`}</div>`];
+}
+function dProc(pid){
+  pid = +pid; const p = procs().find(x => x.pid === pid);
+  if (!p) return ["процесс", `<h2>PID ${pid}</h2><div class="empty">Процесс завершился.</div>`];
+  return ["процесс", `<h2>${esc(p.label)}</h2><div class="meta"><span class="tag ok">работает</span><span class="tag">PID ${p.pid}</span></div>
+    <dl class="kv"><dt>Имя</dt><dd>${esc(p.name)}</dd><dt>Запущен</dt><dd>${p.start ? new Date(p.start*1000).toLocaleString("ru-RU") : "—"}</dd>
+    <dt>Память</dt><dd>${fmtMB(p.rss || 0)}</dd><dt>CPU</dt><dd>${p.cpu == null ? "—" : p.cpu.toFixed(1)+"%"}</dd><dt>Родитель</dt><dd>${esc(p.parent_name || "—")} (${p.ppid})</dd></dl>
+    <div class="blk"><h5>Командная строка</h5><pre class="box">${esc(p.cmd)}</pre></div>`];
+}
+function dClient(c){
+  const ps = procs(c === "antigravity" ? "antigravity" : "claude"), main = ps.filter(p => !ps.some(q => q.pid === p.ppid));
+  const srv = servers().filter(s => s.client === c), rules = CFG.rules.filter(r => r.client === c || r.client === "both");
+  return ["клиент", `<h2>${esc(CLIENT[c]?.n || c)}</h2>
+    <div class="meta">${ps.length ? `<span class="tag ok">запущен</span><span class="tag">${ps.length} процессов · ${fmtMB(ps.reduce((a, p) => a + (p.rss || 0), 0))}</span>` : `<span class="tag">не запущен</span>`}</div>
+    <div class="blk"><h5>Роль в системе</h5><p>${c === "antigravity" ? "Ведущий агент. Работает на Gemini, по правилам из GEMINI.md зовёт мост и его роли." : "Агент Claude. Мост зовёт его через CLI для инструментов claude_*. " + (cliOk() ? "CLI найден." : "CLI на этом компьютере не найден.")}</p></div>
+    <div class="blk"><h5>Главные процессы</h5>${procList(main)}</div>
+    <div class="blk"><h5>MCP-серверы</h5>${srv.length ? `<div class="list">${srv.map(s => `<button data-open="server:${esc(s.name)}"><span class="dot ${s.tapped ? "ok" : s.tappable ? "bad" : ""}"></span>${esc(s.name)}<span class="r">${s.tapped ? "журнал есть" : s.tappable ? "без журнала" : "вне журнала"}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
+    <div class="blk"><h5>Правила</h5>${rules.length ? `<div class="list">${rules.map(r => `<button data-open="rule:${esc(r.path)}">${esc(base(r.path))}<span class="r">${esc(r.kind)}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
+    <div class="blk"><h5>Его вызовы</h5>${callList(calls().filter(x => x.client === c), "Вызовов не записано.")}</div>`];
+}
+function dServer(name){
+  if (SYS.core && name === SYS.core.name) return dCore();
+  const s = servers().find(x => x.name === name); if (!s) return ["MCP-сервер", `<h2>${esc(name)}</h2>`];
+  const b = bridgeOf(s) || {};
+  return ["MCP-сервер", `<h2>${esc(name)}</h2>
+    <div class="blk"><h5>Запуск</h5><dl class="kv"><dt>Клиент</dt><dd>${esc(CLIENT[s.client]?.n || s.client)}</dd><dt>Команда</dt><dd class="mono">${esc(s.url || s.command)}</dd><dt>Аргументы</dt><dd class="mono">${esc(s.args.join(" "))}</dd><dt>Файл настроек</dt><dd class="mono">${esc(s.config)}</dd></dl></div>
+    <div class="blk"><h5>Инструменты</h5>${(b.tools || []).length ? `<div class="list">${b.tools.map(t => `<div class="mono">${esc(t.name)}<span class="r">${esc((t.description || "").slice(0, 60))}</span></div>`).join("")}</div>` : `<div class="empty">Приложение не читает этот сервер: журнал ставится только на мосты моделей.</div>`}</div>
+    <div class="blk"><h5>Процессы</h5>${procList(procs().filter(p => s.file && p.cmd.toLowerCase().includes(base(s.file).toLowerCase())))}</div>`];
+}
+function dSysFile(path){
+  const f = SYS.files.find(x => x.path === path); if (!f) return ["файл", `<h2>${esc(base(path))}</h2>`];
+  return ["файл мультимодели", `<h2 class="mono">${esc(f.name)}</h2><div class="meta"><span class="tag">изменён ${fmtDate(f.mtime)}</span>${f.name === ".env" ? `<span class="tag">только имена переменных</span>` : `<span class="tag">ключи скрыты</span>`}</div>
+    <div class="faint mono" style="word-break:break-all">${esc(f.path)}</div><pre class="box" style="max-height:none">${esc(f.error || JSON.stringify(f.data, null, 2))}</pre>`];
+}
+function dRule(path){
+  const r = CFG.rules.find(x => x.path === path); if (!r) return ["правило", `<h2>${esc(base(path))}</h2>`];
+  return ["правило", `<h2>${esc(base(path))}</h2><div class="meta"><span class="tag">${esc(r.kind)}</span><span class="tag">изменён ${fmtDate(r.mtime)}</span></div>
+    <div class="faint mono" style="word-break:break-all">${esc(r.path)}</div><pre class="box">${esc(fileText(r.path))}</pre>`];
+}
 
-function openClient(c){
-  const draw = () => {
-    const ps = procs(c === "antigravity" ? "antigravity" : "claude");
-    const srv = servers().filter(s => s.client === c);
-    const rules = CFG.rules.filter(r => r.client === c || r.client === "both");
-    const cs = calls().filter(x => x.client === c);
-    const main = ps.filter(p => !ps.some(q => q.pid === p.ppid));
-    $("#dbody").innerHTML = `<h2>${CLIENT[c].n}</h2>
-      <div class="meta">${ps.length ? `<span class="tag ok">запущен</span><span class="tag">${ps.length} процессов · ${fmtMB(ps.reduce((a,p)=>a+(p.rss||0),0))}</span>` : `<span class="tag">не запущен</span>`}</div>
-      <div class="blk"><h5>Главные процессы</h5>${procList(main)}${ps.length > main.length ? `<p class="faint" style="margin-top:6px">и ещё ${ps.length-main.length} вспомогательных процессов</p>` : ""}</div>
-      <div class="blk"><h5>Подключённые MCP-серверы</h5>${srv.length ? `<div class="list">${srv.map(s => `<button data-srv="${esc(s.name)}"><span class="dot ${s.tapped?"ok":s.tappable?"bad":""}"></span>${esc(s.name)}<span class="r">${s.tapped?"журнал есть":s.tappable?"без журнала":"вне журнала"}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
-      <div class="blk"><h5>Правила, которые он читает</h5>${rules.length ? `<div class="list">${rules.map((r) => `<button data-rule="${esc(r.path)}">${esc(base(r.path))}<span class="r">${esc(r.kind)}</span></button>`).join("")}</div>` : `<div class="empty">Нет.</div>`}</div>
-      <div class="blk"><h5>Его вызовы мостов</h5>${callList(cs, "Вызовов не записано.")}</div>`;
-    bindCalls(); bindProcs();
-    $("#dbody").querySelectorAll("[data-srv]").forEach(b => b.onclick = () => openServer(b.dataset.srv));
-    $("#dbody").querySelectorAll("[data-rule]").forEach(b => b.onclick = () => openRule(CFG.rules.find(r => r.path === b.dataset.rule)));
-  };
-  openDossier("клиент", "", draw); draw();
-}
-
-function openServer(name){
-  const draw = () => {
-    const entries = servers().filter(s => s.name === name);
-    const s = entries[0]; if (!s) return;
-    const b = bridgeOf(s) || {};
-    const live = procs("tap").concat(procs("bridge")).filter(p => p.cmd.includes(name) || (s.file && p.cmd.includes(base(s.file))));
-    const cs = calls().filter(c => c.server === name);
-    $("#dbody").innerHTML = `<h2>${esc(name)}</h2>
-      <div class="meta">${entries.map(e => `<span class="tag ${e.tapped?"ok":e.tappable?"bad":""}">${esc(CLIENT[e.client]?.n||e.client)}: ${e.tapped?"журнал есть":e.tappable?"без журнала":"вне журнала"}</span>`).join("")}</div>
-      ${b.error ? `<div class="banner" style="margin:0">Не удалось прочитать мост: ${esc(b.error)}</div>` : ""}
-      ${b.hardcoded_keys ? `<div class="banner" style="margin:0">В файле моста прямо в коде записано ключей: ${b.hardcoded_keys}.</div>` : ""}
-      <div class="blk"><h5>Запуск</h5><dl class="kv"><dt>Команда</dt><dd>${esc(s.url || s.command)}</dd><dt>Аргументы</dt><dd>${esc(s.args.join(" "))}</dd>
-        <dt>Переменные</dt><dd>${esc(s.env_keys.join(", ") || "нет")}</dd>${s.file?`<dt>Файл</dt><dd>${esc(s.file)}</dd><dt>Изменён</dt><dd>${fmtDate(b.mtime)}</dd>`:""}
-        ${b.default_model?`<dt>Модель по умолч.</dt><dd>${esc(b.default_model)}</dd>`:""}${b.claude_model?`<dt>Модель Claude</dt><dd>${esc(b.claude_model)}</dd><dt>Claude CLI</dt><dd>${esc(b.claude_path)}</dd>`:""}</dl></div>
-      <div class="blk"><h5>Инструменты</h5>${(b.tools||[]).length ? `<div class="list">${b.tools.map(t => `<button data-tool="${esc(t.name)}"><span>${esc(t.name)}</span><span class="r">${calls().filter(c=>c.server===name&&c.tool===t.name).length} выз.</span></button>`).join("")}</div>` : `<div class="empty">Список недоступен.</div>`}</div>
-      <div class="blk"><h5>Процессы сейчас</h5>${procList(live)}</div>
-      <div class="blk"><h5>Последние вызовы</h5>${callList(cs, s.tapped ? "Вызовов пока не было." : "Журнал для этого моста не подключён.")}</div>`;
-    bindCalls(); bindProcs();
-    $("#dbody").querySelectorAll("[data-tool]").forEach(x => x.onclick = () => openTool(name, x.dataset.tool));
-  };
-  openDossier("MCP-сервер", "", draw); draw();
-}
-
-function openTool(server, tool){
-  const draw = () => {
-    const s = servers().find(x => x.name === server); const b = s ? bridgeOf(s) || {} : {};
-    const t = (b.tools||[]).find(x => x.name === tool) || {};
-    const cs = calls().filter(c => c.server === server && c.tool === tool);
-    const done = cs.filter(c => c.ms != null), errs = cs.filter(c => c.error).length;
-    $("#dbody").innerHTML = `<h2>${esc(tool)}</h2><div class="meta"><span class="tag">${esc(server)}</span></div>
-      <div class="blk"><h5>Описание из моста</h5><p>${esc(t.description || "нет описания")}</p></div>
-      <div class="blk"><h5>Статистика по журналу</h5><dl class="kv"><dt>Вызовов</dt><dd>${cs.length}</dd><dt>С ошибкой</dt><dd>${errs}</dd>
-        <dt>Среднее время</dt><dd>${done.length ? fmtMs(Math.round(done.reduce((a,c)=>a+c.ms,0)/done.length)) : "—"}</dd><dt>Последний</dt><dd>${cs[0] ? fmtAgo(cs[0].start) : "—"}</dd></dl></div>
-      <div class="blk"><h5>Вызовы</h5>${callList(cs, "Вызовов не записано.")}</div>`;
-    bindCalls();
-  };
-  openDossier("инструмент", "", draw); draw();
-}
-
-function openModel(m, isClaude){
-  const draw = () => {
-    const provs = Object.values(CFG.bridges).flatMap(b => (b.providers||[]).filter(p => p.models.includes(m)));
-    const cs = isClaude ? calls().filter(c => c.server === "claude-bridge") : calls().filter(c => c.model === m);
-    $("#dbody").innerHTML = `<h2>${esc(m)}</h2>
-      <div class="blk"><h5>Где доступна</h5>${isClaude ? `<p>Запускается мостом claude-bridge через Claude Code CLI на этом компьютере, по твоей подписке Claude.</p>` : provs.length ? `<div class="list">${provs.map(p => `<div class="row">${esc(p.name)}<span class="r">приоритет ${esc(p.priority)}</span></div>`).join("")}</div>` : `<div class="empty">Не найдена в пулах multillm-bridge.</div>`}</div>
-      <div class="blk"><h5>Вызовы с этой моделью</h5>${callList(cs, "Не вызывалась.")}</div>`;
-    bindCalls();
-  };
-  openDossier("модель", "", draw); draw();
-}
-
-function openCall(id){
-  const draw = () => {
-    const c = calls().find(x => x.id === id); if (!c) return;
-    $("#dbody").innerHTML = `<h2>${esc(c.tool)}</h2>
-      <div class="meta">${c.end==null?`<span class="tag warn">идёт ${fmtAgo(c.start).replace(" назад","")}</span>`:c.error?`<span class="tag bad">ошибка</span>`:`<span class="tag ok">готово</span>`}<span class="tag">${esc(c.server)}</span>${c.model?`<span class="tag">${esc(c.model)}</span>`:""}</div>
-      <div class="blk"><h5>Кто и когда</h5><dl class="kv"><dt>Вызвал</dt><dd>${esc(CLIENT[c.client]?.n || c.client)}${c.client_info?` <span class="faint">(${esc(c.client_info)})</span>`:""}</dd>
-        <dt>Начало</dt><dd>${new Date(c.start*1000).toLocaleString("ru-RU")}</dd><dt>Длилось</dt><dd>${fmtMs(c.ms)}</dd>
-        ${c.provider?`<dt>Пул</dt><dd>${esc(c.provider)}</dd>`:""}${c.chars!=null?`<dt>Ответ</dt><dd>${c.chars} символов</dd>`:""}</dl></div>
-      <div class="blk"><h5>Параметры запроса</h5><pre class="box">${esc(JSON.stringify(c.args, null, 2))}</pre></div>
-      <div class="blk"><h5>Начало ответа</h5>${c.preview!=null?`<pre class="box">${esc(c.preview)}</pre>`:`<div class="empty">Ответа ещё нет.</div>`}</div>
-      <div class="blk"><h5>Сообщения моста</h5>${c.logs.length?`<pre class="box">${c.logs.map(l => esc(fmtTime(l.ts)+"  "+l.line)).join("\n")}</pre>`:`<div class="empty">Нет.</div>`}</div>`;
-  };
-  openDossier("вызов", "", draw); draw();
-}
-
-function openProc(pid){
-  const draw = () => {
-    const p = procs().find(x => x.pid === pid);
-    if (!p) { $("#dbody").innerHTML = `<h2>PID ${pid}</h2><div class="empty">Процесс завершился.</div>`; return; }
-    $("#dbody").innerHTML = `<h2>${esc(p.label)}</h2><div class="meta"><span class="tag ok">работает</span><span class="tag">PID ${p.pid}</span></div>
-      <dl class="kv"><dt>Имя</dt><dd>${esc(p.name)}</dd><dt>Запущен</dt><dd>${p.start?new Date(p.start*1000).toLocaleString("ru-RU"):"—"}</dd>
-      <dt>Память</dt><dd>${fmtMB(p.rss||0)}</dd><dt>CPU</dt><dd>${p.cpu==null?"—":p.cpu.toFixed(1)+"%"}</dd>
-      <dt>Родитель</dt><dd>${esc(p.parent_name||"—")} (${p.ppid})</dd></dl>
-      <div class="blk"><h5>Командная строка</h5><pre class="box">${esc(p.cmd)}</pre></div>`;
-  };
-  openDossier("процесс", "", draw); draw();
-}
-
-async function openRule(r){
-  if (!r) return;
-  openDossier("правило", `<h2>${esc(base(r.path))}</h2><div class="meta"><span class="tag">${esc(r.kind)}</span><span class="tag">изменён ${fmtDate(r.mtime)}</span></div><div class="faint" style="word-break:break-all">${esc(r.path)}</div><pre class="box" id="ruleText">загрузка…</pre>`);
-  try { const d = await getJSON("/api/file?path="+encodeURIComponent(r.path)); $("#ruleText").textContent = d.text; }
-  catch(e){ $("#ruleText").textContent = "Не удалось прочитать файл."; }
-}
-function openRules(){
-  openDossier("правила", `<h2>Правила и навыки</h2><p class="muted" style="margin:0">Это общий «мозг» связки: тексты, по которым Antigravity и Claude Code решают, когда и кого звать.</p>
-    <div class="list">${CFG.rules.map(r => `<button data-rule="${esc(r.path)}">${esc(base(r.path))}<span class="r">${esc(r.kind)}</span></button>`).join("")}</div>`);
-  $("#dbody").querySelectorAll("[data-rule]").forEach(b => b.onclick = () => openRule(CFG.rules.find(r => r.path === b.dataset.rule)));
-}
-
-// ---------- map
+// ---------- scene: core, orbit of roles, orbit of model pools; click focuses a branch like a tree
 const cv = $("#cv"), ctx = cv.getContext("2d");
-let W = 0, H = 0, N = [], E = [], hover = null, rot = 0;
+let W = 0, H = 0, hover = null, rotA = 0, rotB = 0, tPrev = 0, mouse = {x:-1, y:-1};
+const NODES = new Map();
+let mode = {kind:"system"};
 const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const STARS = Array.from({length:170}, () => ({x:Math.random(), y:Math.random(), s:Math.random()*1.3 + .2, p:Math.random()*6.28}));
+const SPHERE = Array.from({length:420}, () => { const u = Math.random()*2 - 1, t = Math.random()*Math.PI*2, r = Math.cbrt(Math.random()), s = Math.sqrt(1 - u*u);
+  return {x:s*Math.cos(t)*r, y:u*r, z:s*Math.sin(t)*r, h:Math.random()}; });
 function resize(){
   const r = cv.getBoundingClientRect(); if (!r.width) return;
   const d = Math.min(2, devicePixelRatio || 1); W = r.width; H = r.height;
-  cv.width = W*d; cv.height = H*d; ctx.setTransform(d,0,0,d,0,0); layout();
+  cv.width = W*d; cv.height = H*d; ctx.setTransform(d, 0, 0, d, 0, 0);
 }
 new ResizeObserver(resize).observe($("#stage"));
 
-function buildGraph(){
-  const old = new Map(N.map(n => [n.id, n]));
-  N = []; E = [];
-  const add = (id, o) => { const prev = old.get(id); const n = Object.assign({id, x: prev?.x, y: prev?.y, heat: prev?.heat || 0}, o); N.push(n); return n; };
-  const edge = (a, b, o={}) => E.push(Object.assign({a, b}, o));
-  add("brain", {type:"brain"});
-  const clients = [...new Set(["antigravity","claude-code", ...servers().map(s => s.client)])];
-  clients.forEach(c => { add("c:"+c, {type:"client", key:c, label:CLIENT[c]?.n || c, color:CLIENT[c]?.c || "#8591bb"}); edge("brain","c:"+c,{kind:"rules"}); });
-  const names = [...new Set(servers().map(s => s.name))];
-  names.forEach(name => {
-    const entries = servers().filter(s => s.name === name);
-    add("s:"+name, {type:"server", key:name, label:name, color:"#b36bff"});
-    entries.forEach(s => edge("c:"+s.client, "s:"+name, {tapped:s.tapped, tappable:s.tappable}));
-    const b = bridgeOf(entries[0]) || {};
-    (b.tools || []).forEach(t => { add("t:"+name+":"+t.name, {type:"tool", key:t.name, server:name, label:t.name, color:"#3ddc97"}); edge("s:"+name, "t:"+name+":"+t.name); });
-    if (b.claude_model) { add("m:claude:"+b.claude_model, {type:"model", key:"Claude "+b.claude_model, label:"Claude · "+b.claude_model, color:"#e8875a", claude:true});
-      (b.tools||[]).forEach(t => edge("t:"+name+":"+t.name, "m:claude:"+b.claude_model, {faint:true})); }
+function node(id, props){ let n = NODES.get(id); if (!n) { n = {id, x:null, y:null, a:0, ta:0, heat:0}; NODES.set(id, n); } Object.assign(n, props); n.seen = true; return n; }
+function syncNodes(){
+  NODES.forEach(n => n.seen = false);
+  const c = SYS.core;
+  node("core", {type:"core", label:(c?.name || "мост").toUpperCase(), sub:SYS.tools.length ? SYS.tools.length+" инструментов" : "", color:"#19f3ff"});
+  ["antigravity","claude-code"].forEach(k => node("c:"+k, {type:"client", key:k, label:CLIENT[k].n, color:CLIENT[k].c, alive:clientRunning(k)}));
+  servers().filter(s => !c || s.name !== c.name).forEach(s => node("s:"+s.name, {type:"server", key:s.name, client:s.client, label:s.name, color:"#8d98c6"}));
+  const fo = FAM_ORDER;
+  SYS.providers.slice().sort((a, b) => fo.indexOf(a.fam) - fo.indexOf(b.fam) || a.id.localeCompare(b.id)).forEach((p, i, arr) =>
+    node("p:"+p.id, {type:"pool", key:p.id, label:p.id, sub:p.model, color:FAM[p.fam].c, idx:i, of:arr.length, dflt:p.isDefault, alias:!!p.alias, dead:p.cli && !cliOk()}));
+  SYS.agents.forEach((a, i) => node("r:"+a.id, {type:"role", key:a.id, label:a.name, sub:a.id, color:FAM[a.fam].c, idx:i, of:SYS.agents.length, dflt:a.isDefault}));
+  FAM_ORDER.forEach(k => node("f:"+k, {type:"family", key:k, label:FAM[k].n, sub:SYS.fam[k].pools.length ? SYS.fam[k].pools.length+" "+plural(SYS.fam[k].pools.length,"пул","пула","пулов") : "не подключена", color:FAM[k].c}));
+  SYS.tools.forEach(t => node("t:"+t.name, {type:"tool", key:t.name, label:t.name, color:"#3dffa8"}));
+  SYS.skills.forEach(k => node("k:"+k.name, {type:"skill", key:k.name, label:k.name, color:"#fcee0a"}));
+  for (const [id, n] of NODES) if (!n.seen) NODES.delete(id);
+  // live state from the call log
+  const now = Date.now()/1000;
+  NODES.forEach(n => { n.running = false; n.count = 0; });
+  calls().forEach(cl => {
+    const ids = ["core", "c:"+cl.client, "t:"+cl.tool, callAgent(cl) ? "r:"+callAgent(cl) : null, ...callProvs(cl).map(p => "p:"+p)];
+    ids.forEach(id => { const n = id && NODES.get(id); if (!n) return; n.count++; if (isRun(cl)) n.running = true; if (cl.end && now - cl.end < 6) n.heat = Math.max(n.heat, 1); });
   });
-  updateGraphState(); layout();
+  if (mode.kind === "focus") { if (NODES.has(mode.id)) mode = planFocus(mode.id); else mode = {kind:"system"}; }
+  updateCrumb();
 }
-function updateGraphState(){
-  if (!CFG || !ST) return;
-  // models: default ones + every model that actually appears in the log
-  const want = new Map();
-  Object.values(CFG.bridges).forEach(b => { if (b.default_model) want.set(b.default_model, null); });
-  calls().forEach(c => { if (c.model && c.server !== "claude-bridge") want.set(c.model, `t:${c.server}:${c.tool}`); });
-  const have = new Set(N.filter(n => n.type === "model" && !n.claude).map(n => n.key));
-  let changed = false;
-  want.forEach((tool, m) => { if (!have.has(m)) { N.push({id:"m:"+m, type:"model", key:m, label:m, color:"#ffb547", heat:0}); changed = true; } });
-  E = E.filter(e => !e.auto);
-  want.forEach((tool, m) => {
-    const srv = servers().find(s => bridgeOf(s)?.default_model === m || (bridgeOf(s)?.providers||[]).some(p => p.models.includes(m)));
-    const from = tool && N.some(n => n.id === tool) ? tool : srv ? "s:"+srv.name : null;
-    if (from) E.push({a:from, b:"m:"+m, auto:true, faint:!tool});
-  });
-  const t = Date.now()/1000;
-  N.forEach(n => {
-    n.running = false; n.count = 0; n.err = 0;
-    if (n.type === "client") n.alive = clientRunning(n.key);
-    if (n.type === "server") n.alive = procs("tap").concat(procs("bridge")).some(p => p.cmd.includes(n.key) || p.cmd.includes(n.key.replace("-","_")));
-  });
-  const byId = new Map(N.map(n => [n.id, n]));
-  calls().forEach(c => {
-    const ids = ["c:"+c.client, "s:"+c.server, `t:${c.server}:${c.tool}`, c.model ? "m:"+c.model : null];
-    if (c.server === "claude-bridge") N.filter(n => n.claude).forEach(n => ids.push(n.id));
-    ids.forEach(id => { const n = id && byId.get(id); if (!n) return; n.count++; if (c.error) n.err++;
-      if (c.end == null) n.running = true; if (t - c.start < 8) n.heat = 1; });
-  });
-  if (changed) layout();
+const refToNode = ref => { const [k, ...r] = ref.split(":"), id = r.join(":");
+  return {role:"r:", pool:"p:", fam:"f:", tool:"t:", skill:"k:"}[k] ? {role:"r:", pool:"p:", fam:"f:", tool:"t:", skill:"k:"}[k] + id : k === "core" ? "core" : null; };
+const nodeToRef = n => ({core:"core", client:"client:"+n.key, server:"server:"+n.key, role:"role:"+n.key, pool:"pool:"+n.key, family:"fam:"+n.key, tool:"tool:"+n.key, skill:"skill:"+n.key})[n.type];
+const focusable = id => /^(core|r:|p:|f:)/.test(id);
+function planFocus(id){
+  const m = {kind:"focus", id, row1:[], row2:[], links:[], sib:[]};
+  const has = x => NODES.has(x);
+  if (id === "core") { m.row1 = SYS.tools.map(t => "t:"+t.name); m.links = m.row1.map(t => ({a:id, b:t})); m.sib = ["core"]; }
+  else if (id.startsWith("r:")) {
+    const a = SYS.agent[id.slice(2)]; m.sib = SYS.agents.map(x => "r:"+x.id);
+    if (a) { m.row1 = a.chain.map(p => "p:"+p).filter(has); m.links = m.row1.map((p, i) => ({a:id, b:p, label:i === 0 ? "1 · основной" : (i+1)+" · запасной", dash:i > 0}));
+      m.row2 = a.skills.map(k => "k:"+k).filter(has); m.row2.forEach(k => m.links.push({a:id, b:k, curve:true, color:"#fcee0a"})); }
+  } else if (id.startsWith("p:")) {
+    const p = SYS.prov[id.slice(2)]; m.sib = SYS.providers.map(x => "p:"+x.id);
+    if (p) { const u = p.usedBy.slice().sort((x, y) => x.pos - y.pos); m.row1 = u.map(x => "r:"+x.agent).filter(has);
+      m.links = u.filter(x => has("r:"+x.agent)).map(x => ({a:id, b:"r:"+x.agent, label:x.pos === 0 ? "основной" : "запасной №"+x.pos, dash:x.pos > 0})); }
+  } else if (id.startsWith("f:")) {
+    const k = id.slice(2), f = SYS.fam[k]; m.sib = famList().map(x => "f:"+x);
+    m.row1 = f.pools.map(p => "p:"+p.id); m.links = m.row1.map(p => ({a:id, b:p}));
+    m.row2 = f.roles.map(a => "r:"+a.id);
+    f.pools.forEach(p => p.usedBy.forEach(u => { if (has("r:"+u.agent)) m.links.push({a:"p:"+p.id, b:"r:"+u.agent, dash:u.pos > 0, label:null}); }));
+  }
+  return m;
 }
-function layout(){
-  if (!W) return;
-  // flow from left to right: rules -> clients -> MCP servers -> tools -> models
-  const col = f => 40 + (W - 260) * f, top = 30, h = H - 70;
-  const place = (list, x) => list.forEach((n, i) => { n.tx = x; n.ty = top + h * (i + 1) / (list.length + 1); if (n.x == null) { n.x = n.tx; n.y = n.ty; } });
-  const brain = N.find(n => n.type === "brain"); if (brain) place([brain], col(0.04) + 40);
-  const clients = N.filter(n => n.type === "client");
-  const srv = N.filter(n => n.type === "server");
-  const tools = srv.flatMap(s => N.filter(n => n.type === "tool" && n.server === s.key));
-  const order = new Map(tools.map((t, i) => [t.id, i]));
-  srv.forEach((s, i) => order.set(s.id, i - 0.5));
-  const models = N.filter(n => n.type === "model").sort((a, b) => {
-    const ka = Math.min(...E.filter(e => e.b === a.id).map(e => order.get(e.a) ?? 99), 99);
-    const kb = Math.min(...E.filter(e => e.b === b.id).map(e => order.get(e.a) ?? 99), 99);
-    return ka - kb; });
-  place(clients, col(0.26)); place(srv, col(0.48)); place(tools, col(0.70)); place(models, col(0.90));
+function setFocus(id){ mode = planFocus(id); updateCrumb(); render(); }
+function unfocus(){ mode = {kind:"system"}; updateCrumb(); render(); }
+function updateCrumb(){
+  const on = view === "sys" && mode.kind === "focus"; $("#crumb").hidden = !on;
+  if (on) { const n = NODES.get(mode.id); $("#cName").textContent = n ? n.label : ""; $("#cPrev").hidden = $("#cNext").hidden = mode.sib.length < 2; }
 }
-const P = Array.from({length: 320}, () => { const u = Math.random()*2-1, t = Math.random()*Math.PI*2, r = Math.cbrt(Math.random()), s = Math.sqrt(1-u*u); return {x:s*Math.cos(t)*r, y:u*r, z:s*Math.sin(t)*r}; });
-function hexA(h, a){ const n = parseInt(h.slice(1), 16); return `rgba(${n>>16},${n>>8&255},${n&255},${a})`; }
-function draw(now){
+$("#cBack").onclick = () => unfocus();
+const step = d => { const i = mode.sib.indexOf(mode.id); if (i < 0) return; const id = mode.sib[(i + d + mode.sib.length) % mode.sib.length];
+  setFocus(id); const n = NODES.get(id); if (n) openRef(nodeToRef(n), true); };
+$("#cPrev").onclick = () => step(-1); $("#cNext").onclick = () => step(1);
+
+function targets(){
+  const cx = W*0.5, cy = H*0.52;
+  const RBx = Math.min(W*0.37, H*0.78), RBy = Math.min(H*0.36, RBx*0.74), RAx = RBx*0.55, RAy = RBy*0.55;
+  NODES.forEach(n => { n.ta = 0; n.big = false; });
+  const core = NODES.get("core");
+  if (mode.kind === "system") {
+    core.tx = cx; core.ty = cy; core.ta = 1; core.sr = Math.min(RAx, RAy)*0.5;
+    NODES.forEach(n => {
+      if (n.type === "role") { const t = rotA + n.idx/n.of*Math.PI*2 - Math.PI/2; n.tx = cx + Math.cos(t)*RAx; n.ty = cy + Math.sin(t)*RAy; n.ta = 1; }
+      else if (n.type === "pool") { const t = rotB + n.idx/n.of*Math.PI*2 - Math.PI/2 + Math.PI/n.of; n.tx = cx + Math.cos(t)*RBx; n.ty = cy + Math.sin(t)*RBy; n.ta = 1; }
+      else if (n.type === "client") { const left = n.key === "antigravity"; n.tx = left ? Math.max(70, cx - RBx - 40) : Math.min(W - 70, cx + RBx + 40); n.ty = Math.max(60, cy - RBy - 10); n.ta = 1; }
+      else if (n.type === "server") { const cl = NODES.get("c:"+n.client); const sibs = [...NODES.values()].filter(x => x.type === "server" && x.client === n.client);
+        n.tx = cl ? cl.tx : 70; n.ty = (cl ? cl.ty : 60) + 78 + sibs.indexOf(n)*52; n.ta = .85; }
+      else { n.tx = cx; n.ty = cy; }
+    });
+  } else {
+    const hub = NODES.get(mode.id);
+    NODES.forEach(n => { n.tx = n.x ?? cx; n.ty = n.y ?? cy; });
+    if (hub) { hub.tx = W/2; hub.ty = H - 96; hub.ta = 1; hub.big = true; }
+    const row = (ids, y) => { const k = ids.length, sp = Math.min(180, (W - 120)/Math.max(k, 1));
+      ids.forEach((id, i) => { const n = NODES.get(id); if (!n) return; n.tx = W/2 + (i - (k - 1)/2)*sp; n.ty = y + (sp < 110 ? (i % 2)*42 - 21 : 0); n.ta = 1; }); };
+    row(mode.row1, mode.row2.length ? H*0.52 : H*0.40); row(mode.row2, H*0.17);
+    if (mode.id !== "core") { core.tx = W/2; core.ty = H + 140; core.sr = 60; }
+    else { core.sr = 46; }
+  }
+}
+function drawBackground(t){
+  const g = ctx.createRadialGradient(W*0.5, H*0.5, 10, W*0.5, H*0.5, Math.max(W, H)*0.7);
+  g.addColorStop(0, "#0a1030"); g.addColorStop(.55, "#05071a"); g.addColorStop(1, "#020309");
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  for (const s of STARS) { const a = .25 + .35*Math.sin(t/900 + s.p); ctx.fillStyle = `rgba(190,210,255,${a})`; ctx.fillRect(s.x*W, s.y*H*0.75, s.s, s.s); }
+  // synthwave floor
+  const hy = H*0.70; ctx.lineWidth = 1;
+  for (let i = 0; i < 9; i++) { const f = ((i + (reduce ? 0 : (t/2400) % 1))/9), y = hy + (H - hy)*f*f;
+    ctx.strokeStyle = `rgba(255,43,214,${.05 + f*.18})`; ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
+  for (let i = -12; i <= 12; i++) { ctx.strokeStyle = "rgba(25,243,255,.07)"; ctx.beginPath(); ctx.moveTo(W/2 + i*24, hy); ctx.lineTo(W/2 + i*W*0.16, H); ctx.stroke(); }
+  const hg = ctx.createLinearGradient(0, hy - 30, 0, hy + 10); hg.addColorStop(0, "rgba(255,43,214,0)"); hg.addColorStop(1, "rgba(255,43,214,.12)");
+  ctx.fillStyle = hg; ctx.fillRect(0, hy - 30, W, 40);
+}
+function drawSphere(x, y, r, c1, c2, rot, busy, alpha){
+  if (alpha < .02) return;
+  const cs = Math.cos(rot), sn = Math.sin(rot), ct = Math.cos(.35), st = Math.sin(.35), pts = [];
+  const count = r > 40 ? SPHERE.length : 160;
+  for (let i = 0; i < count; i++) { const p = SPHERE[i]; const X = p.x*cs - p.z*sn, Z = p.x*sn + p.z*cs, Y = p.y*ct - Z*st, Z2 = p.y*st + Z*ct;
+    pts.push({x:x + X*r, y:y + Y*r, z:Z2, h:p.h}); }
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, r*1.7);
+  glow.addColorStop(0, hexA(c1, (busy ? .30 : .18)*alpha)); glow.addColorStop(1, hexA(c1, 0));
+  ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(x, y, r*1.7, 0, 7); ctx.fill();
+  ctx.lineWidth = .5; const lim = r*r*0.045;
+  for (let i = 0; i < pts.length; i += 2) for (let j = i + 1; j < Math.min(pts.length, i + 26); j++) {
+    const a = pts[i], b = pts[j], dx = a.x - b.x, dy = a.y - b.y;
+    if (dx*dx + dy*dy < lim) { ctx.strokeStyle = hexA(a.h > .5 ? c1 : c2, (busy ? .32 : .16)*alpha); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  }
+  for (const p of pts) { const s = .7 + (p.z + 1)*.8; ctx.fillStyle = hexA(p.h > .55 ? c1 : c2, (.35 + (p.z + 1)*.3)*alpha); ctx.fillRect(p.x - s/2, p.y - s/2, s, s); }
+}
+function poly(x, y, r, k, rot){ ctx.beginPath(); for (let i = 0; i < k; i++) { const t = rot + i/k*Math.PI*2; ctx[i ? "lineTo" : "moveTo"](x + Math.cos(t)*r, y + Math.sin(t)*r); } ctx.closePath(); }
+function person(x, y, r, c){ ctx.strokeStyle = c; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.arc(x, y - r*.22, r*.28, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y + r*.62, r*.5, Math.PI*1.12, Math.PI*1.88); ctx.stroke(); }
+const radius = n => ({core:0, client:24, server:13, role:15, pool:11, family:14, tool:8, skill:9})[n.type] * (n.big ? 1.6 : mode.kind === "focus" && n.ta ? 1.25 : 1);
+function label(n, a, t){
+  if (a < .05) return;
+  const r = radius(n), big = n.type === "client" || n.big;
+  ctx.globalAlpha = a; ctx.textAlign = "center"; ctx.textBaseline = "top";
+  const name = n.label.length > 22 ? n.label.slice(0, 21)+"…" : n.label;
+  ctx.font = big ? '700 12px "Unbounded", "Bahnschrift", sans-serif' : '600 12px "Exo 2", "Segoe UI", sans-serif';
+  ctx.fillStyle = big ? n.color : (hover === n ? "#ffffff" : "#e6ecff");
+  ctx.fillText(big ? name.toUpperCase() : name, n.x, n.y + r + 7);
+  let sub = n.sub || "";
+  if (n.type === "client") sub = n.alive ? "запущен" : "не запущен";
+  if (n.running) sub = "▶ работает";
+  if (sub) { ctx.font = '10px "JetBrains Mono", Consolas, monospace'; ctx.fillStyle = n.running ? "#fcee0a" : "#8d98c6"; ctx.fillText(sub.length > 26 ? sub.slice(0, 25)+"…" : sub, n.x, n.y + r + (big ? 24 : 22)); }
+  ctx.globalAlpha = 1;
+}
+function drawNode(n, t){
+  const a = n.a; if (a < .03 || n.type === "core") return;
+  const r = radius(n), c = n.color, hv = hover === n;
+  ctx.globalAlpha = a;
+  if (n.running || n.heat > .02) { ctx.fillStyle = hexA(n.running ? "#fcee0a" : c, n.running ? .18 + .1*Math.sin(t/180) : n.heat*.3); ctx.beginPath(); ctx.arc(n.x, n.y, r + 12, 0, 7); ctx.fill(); }
+  if (n.heat > .02) { ctx.strokeStyle = hexA(c, n.heat); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(n.x, n.y, r + 4 + (1 - n.heat)*26, 0, 7); ctx.stroke(); }
+  ctx.fillStyle = "#070b1d"; ctx.strokeStyle = hv ? "#ffffff" : n.running ? "#fcee0a" : c; ctx.lineWidth = hv ? 2.2 : 1.5;
+  ctx.shadowColor = c; ctx.shadowBlur = hv || n.big ? 16 : 8;
+  if (n.big && n.type !== "client") { ctx.shadowBlur = 0; drawSphere(n.x, n.y, 34, c, "#ff2bd6", t/2600, n.running, a); ctx.globalAlpha = a; ctx.strokeStyle = hexA(c, .7); ctx.beginPath(); ctx.arc(n.x, n.y, 40, 0, 7); ctx.stroke(); }
+  else if (n.type === "client") { poly(n.x, n.y, r, 6, Math.PI/6); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0; poly(n.x, n.y, r + 6, 6, Math.PI/6); ctx.strokeStyle = hexA(c, .3); ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = c; ctx.font = '700 12px "Unbounded", sans-serif'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(CLIENT[n.key].g, n.x, n.y + 1);
+    ctx.fillStyle = n.alive ? "#3dffa8" : "#4f5a88"; ctx.beginPath(); ctx.arc(n.x + r*.8, n.y - r*.7, 4, 0, 7); ctx.fill(); }
+  else if (n.type === "server") { poly(n.x, n.y, r, 6, Math.PI/6); ctx.fill(); ctx.stroke(); }
+  else if (n.type === "role") { ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.stroke(); ctx.shadowBlur = 0; person(n.x, n.y, r, hexA(c, .95));
+    if (n.dflt) { ctx.strokeStyle = hexA(c, .45); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(n.x, n.y, r + 5, 0, 7); ctx.stroke(); } }
+  else if (n.type === "pool") { if (n.dead) ctx.setLineDash([3, 3]); poly(n.x, n.y, r*1.25, 4, 0); ctx.fillStyle = hexA(c, .16); ctx.fill(); ctx.stroke(); ctx.setLineDash([]); ctx.shadowBlur = 0;
+    ctx.fillStyle = c; ctx.beginPath(); ctx.arc(n.x, n.y, 2.4, 0, 7); ctx.fill();
+    if (n.dflt) { poly(n.x, n.y, r*1.25 + 6, 4, 0); ctx.strokeStyle = hexA(c, .5); ctx.lineWidth = 1; ctx.stroke(); }
+    if (n.alias) { ctx.fillStyle = "#ffb547"; ctx.font = '700 11px "JetBrains Mono", monospace'; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("!", n.x + r*1.5, n.y - r*1.1); } }
+  else if (n.type === "family") { poly(n.x, n.y, r, 4, 0); ctx.fillStyle = hexA(c, .2); ctx.fill(); ctx.stroke(); }
+  else if (n.type === "tool") { ctx.fillRect(n.x - r, n.y - r, r*2, r*2); ctx.strokeRect(n.x - r, n.y - r, r*2, r*2); }
+  else if (n.type === "skill") { poly(n.x, n.y, r, 3, -Math.PI/2); ctx.fill(); ctx.stroke(); }
+  ctx.shadowBlur = 0; ctx.globalAlpha = 1;
+  label(n, a, t);
+}
+function line(a, b, o){
+  const al = Math.min(a.a, b.a)*(o.alpha ?? .35); if (al < .02) return;
+  ctx.strokeStyle = hexA(o.color || "#8d98c6", al); ctx.lineWidth = o.w || 1; ctx.setLineDash(o.dash ? [4, 5] : o.dot ? [1, 5] : []);
+  ctx.beginPath(); ctx.moveTo(a.x, a.y);
+  if (o.curve) { const mx = (a.x + b.x)/2 + (b.x > a.x ? 1 : -1)*Math.abs(b.y - a.y)*0.35; ctx.quadraticCurveTo(mx, (a.y + b.y)/2, b.x, b.y); } else ctx.lineTo(b.x, b.y);
+  ctx.stroke(); ctx.setLineDash([]);
+}
+function packet(pts, t, c){
+  const segs = []; let L = 0; for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i].x - pts[i-1].x, pts[i].y - pts[i-1].y); segs.push(d); L += d; }
+  if (!L) return;
+  for (let k = 0; k < 3; k++) { let f = ((t/1500) + k/3) % 1 * L, i = 0; while (i < segs.length - 1 && f > segs[i]) { f -= segs[i]; i++; }
+    const a = pts[i], b = pts[i+1], u = segs[i] ? f/segs[i] : 0, x = a.x + (b.x - a.x)*u, y = a.y + (b.y - a.y)*u;
+    ctx.fillStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 12; ctx.beginPath(); ctx.arc(x, y, 3, 0, 7); ctx.fill(); ctx.shadowBlur = 0; }
+}
+function draw(t){
   requestAnimationFrame(draw);
-  if (view !== "map" || !W || !N.length) return;
-  if (!reduce) rot += 0.003;
-  const k = reduce ? 1 : 0.15;
-  N.forEach(n => { if (n.tx == null) return; n.x += (n.tx - n.x)*k; n.y += (n.ty - n.y)*k; n.heat = Math.max(0, (n.heat||0) - 0.004); });
-  ctx.clearRect(0, 0, W, H);
-  const byId = new Map(N.map(n => [n.id, n]));
-  const brain = byId.get("brain"), br = Math.min(W * 0.07, H * 0.16);
-  // brain: one particle per stored rule line would be fake precision; density only reflects activity today
-  const busy = N.some(n => n.running), cs = Math.cos(rot), sn = Math.sin(rot), pts = [];
-  for (const p of P) { const x = p.x*cs - p.z*sn, z = p.x*sn + p.z*cs; pts.push({x: brain.x + x*br, y: brain.y + p.y*br, z}); }
-  ctx.lineWidth = .5;
-  for (let i = 0; i < pts.length; i += 2) for (let j = i+1; j < Math.min(pts.length, i+30); j++) {
-    const a = pts[i], b = pts[j], dx = a.x-b.x, dy = a.y-b.y;
-    if (dx*dx + dy*dy < br*br*0.05) { ctx.strokeStyle = `rgba(255,110,90,${busy ? .3 : .14})`; ctx.beginPath(); ctx.moveTo(a.x,a.y); ctx.lineTo(b.x,b.y); ctx.stroke(); }
+  if (view !== "sys" || !W || !SYS || !NODES.has("core")) return;
+  const dt = Math.min(64, t - (tPrev || t)); tPrev = t;
+  const slow = hover ? .15 : 1;
+  if (!reduce) { rotA -= dt*0.000035*slow; rotB += dt*0.000022*slow; }
+  targets();
+  const k = reduce ? 1 : 0.12;
+  NODES.forEach(n => { if (n.x == null) { n.x = n.tx; n.y = n.ty; } n.x += (n.tx - n.x)*k; n.y += (n.ty - n.y)*k; n.a += (n.ta - n.a)*(reduce ? 1 : .1); n.heat = Math.max(0, n.heat - dt/2500); });
+  drawBackground(t);
+  const core = NODES.get("core"), by = id => NODES.get(id);
+  const sel = hover || (selRef ? by(refToNode(selRef) || "") : null);
+  if (mode.kind === "system") {
+    // core spokes to clients
+    NODES.forEach(n => { if (n.type === "client") line(n, core, {color:n.color, alpha:n.alive ? .45 : .15, dash:!n.alive});
+      if (n.type === "server") { const cl = by("c:"+n.client); if (cl) line(cl, n, {alpha:.25, dot:true}); } });
+    // ring guides
+    ctx.strokeStyle = "rgba(25,243,255,.07)"; ctx.lineWidth = 1;
+    const RBx = Math.min(W*0.37, H*0.78), RBy = Math.min(H*0.36, RBx*0.74);
+    [1, .55].forEach(f => { ctx.beginPath(); ctx.ellipse(core.x, core.y, RBx*f, RBy*f, 0, 0, 7); ctx.stroke(); });
+    // roles to their pools
+    SYS.agents.forEach(a => { const rn = by("r:"+a.id); if (!rn) return;
+      line(core, rn, {color:"#19f3ff", alpha:.12, dot:true});
+      const hot = sel && (sel === rn || a.chain.some(p => sel.id === "p:"+p) || (sel.type === "family" && SYS.prov[a.primary]?.fam === sel.key));
+      a.chain.forEach((p, i) => { const pn = by("p:"+p); if (!pn) return; const on = hot && (sel === rn || sel === pn || sel.type === "family");
+        line(rn, pn, {color:pn.color, alpha:on ? (i ? .55 : .95) : sel ? (i ? .03 : .08) : (i ? .07 : .3), dash:i > 0, w:on ? 1.6 : 1}); }); });
+  } else {
+    mode.links.forEach(l => { const a = by(l.a), b = by(l.b); if (!a || !b) return;
+      line(a, b, {color:b.color, alpha:l.dash ? .4 : .75, dash:l.dash, curve:l.curve, w:1.3});
+      if (!reduce && !l.dash) packet([a, b], t + (b.x || 0)*7, hexA(b.color, .9));
+      if (l.label && b.a > .5) { ctx.font = '10px "JetBrains Mono", monospace'; ctx.fillStyle = "#8d98c6"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(l.label, a.x + (b.x - a.x)*.62, a.y + (b.y - a.y)*.62 - 8); } });
+    if (!mode.row1.length && !mode.row2.length) { const hub = by(mode.id); ctx.font = '13px "Exo 2", sans-serif'; ctx.fillStyle = "#8d98c6"; ctx.textAlign = "center";
+      ctx.fillText(hub?.type === "family" ? "В providers.json нет ни одного пула этой модели." : hub?.type === "pool" ? "Ни одна роль не использует этот пул." : "Связей нет.", W/2, H*0.42); }
   }
-  for (const p of pts) { const s = .8 + (p.z+1)*.7; ctx.fillStyle = `rgba(255,${130+p.z*40|0},100,${.4+(p.z+1)*.25})`; ctx.fillRect(p.x-s/2, p.y-s/2, s, s); }
-  // edges
-  for (const e of E) {
-    const a = byId.get(e.a), b = byId.get(e.b); if (!a || !b) continue;
-    const live = a.running && b.running;
-    ctx.setLineDash(e.kind === "rules" || e.faint ? [2,5] : (e.tappable && !e.tapped) ? [6,5] : []);
-    ctx.strokeStyle = live ? "rgba(255,181,71,.9)" : e.kind === "rules" ? "rgba(255,110,90,.28)" : (e.tappable && !e.tapped) ? "rgba(255,90,110,.45)" : `rgba(133,145,187,${e.faint ? .2 : .32})`;
-    ctx.lineWidth = live ? 1.6 : 1;
-    const mx = (a.x + b.x) / 2;
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.bezierCurveTo(mx, a.y, mx, b.y, b.x, b.y); ctx.stroke();
-    if (live && !reduce) { const f = (now/900) % 1, u = 1 - f;
-      const px = u*u*u*a.x + 3*u*u*f*mx + 3*u*f*f*mx + f*f*f*b.x, py = u*u*u*a.y + 3*u*u*f*a.y + 3*u*f*f*b.y + f*f*f*b.y;
-      ctx.setLineDash([]); ctx.fillStyle = "#ffb547"; ctx.beginPath(); ctx.arc(px, py, 3, 0, 7); ctx.fill(); }
+  // live packets: core -> role -> pool for every running call
+  calls().filter(isRun).forEach(c => { const pts = [core]; const a = callAgent(c); if (a && by("r:"+a)) pts.push(by("r:"+a));
+    const pv = callProvs(c).slice(-1)[0]; if (pv && by("p:"+pv)) pts.push(by("p:"+pv));
+    if (pts.length > 1 && pts.every(p => p.a > .3) && !reduce) packet(pts, t, "#fcee0a"); });
+  // core
+  const busy = calls().some(isRun);
+  if (core.a > .03 && core.y < H + 60) {
+    drawSphere(core.x, core.y, core.sr || 60, "#19f3ff", "#ff2bd6", reduce ? .6 : t/4200, busy, core.a);
+    ctx.globalAlpha = core.a; ctx.strokeStyle = "rgba(25,243,255,.35)"; ctx.lineWidth = 1;
+    const R = (core.sr || 60) + 12; ctx.setLineDash([2, 6]); ctx.beginPath(); ctx.arc(core.x, core.y, R, reduce ? 0 : t/3000, (reduce ? 0 : t/3000) + Math.PI*1.6); ctx.stroke(); ctx.setLineDash([]);
+    ctx.textAlign = "center"; ctx.textBaseline = "top"; ctx.font = '700 13px "Unbounded", "Bahnschrift", sans-serif'; ctx.fillStyle = "#e6ecff";
+    ctx.shadowColor = "#19f3ff"; ctx.shadowBlur = 10; ctx.fillText(core.label, core.x, core.y + R + 6); ctx.shadowBlur = 0;
+    ctx.font = '10px "JetBrains Mono", monospace'; ctx.fillStyle = busy ? "#fcee0a" : "#8d98c6"; ctx.fillText(busy ? "▶ обрабатывает вызов" : core.sub, core.x, core.y + R + 24); ctx.globalAlpha = 1;
   }
-  ctx.setLineDash([]);
-  // nodes
-  ctx.textAlign = "center"; ctx.textBaseline = "top";
-  for (const n of N) {
-    if (n.type === "brain") {
-      ctx.font = '600 12px "Bahnschrift", "Segoe UI", sans-serif'; ctx.fillStyle = "#d9e1ff";
-      ctx.textAlign = "center"; ctx.fillText("ПРАВИЛА", n.x, n.y + br + 8);
-      ctx.font = '10px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#8591bb";
-      ctx.fillText((CFG?.rules.length ?? 0) + " файлов", n.x, n.y + br + 24); continue;
-    }
-    const r = n.type === "client" ? 22 : n.type === "server" ? 17 : n.type === "tool" ? 10 : 7;
-    const hv = hover === n, on = n.running;
-    const dim = (n.type === "client" || n.type === "server") && !n.alive;
-    if (on || n.heat > 0) { ctx.fillStyle = hexA("#ffb547", on ? .18 + .1*Math.sin(now/200) : n.heat*.25); ctx.beginPath(); ctx.arc(n.x, n.y, r+10, 0, 7); ctx.fill(); }
-    ctx.globalAlpha = dim ? .55 : 1;
-    ctx.fillStyle = "#0c1124"; ctx.strokeStyle = hv ? "#ffffff" : on ? "#ffb547" : n.color; ctx.lineWidth = hv || on ? 2 : 1.4;
-    ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.stroke();
-    if (n.type === "client" || n.type === "server") {
-      ctx.fillStyle = n.alive ? "#3ddc97" : "#5b6488"; ctx.beginPath(); ctx.arc(n.x + r*.72, n.y - r*.72, 4, 0, 7); ctx.fill();
-      ctx.strokeStyle = hexA(n.color, .25); ctx.beginPath(); ctx.arc(n.x, n.y, r+5, 0, 7); ctx.stroke();
-    }
-    if (n.err) { ctx.fillStyle = "#ff5a6e"; ctx.beginPath(); ctx.arc(n.x - r*.72, n.y - r*.72, 3, 0, 7); ctx.fill(); }
-    ctx.globalAlpha = 1;
-    const big = n.type === "client" || n.type === "server";
-    const sub = n.type === "client" ? (n.alive ? "запущен" : "не запущен") : n.type === "server" ? (n.alive ? "на связи" : "ждёт клиента")
-      : n.count ? n.count + " выз." + (n.err ? ", ошибок " + n.err : "") : n.type === "tool" ? "не вызывался" : "";
-    if (big) {
-      ctx.textAlign = "center";
-      ctx.font = '600 13px "Bahnschrift", "Segoe UI", sans-serif'; ctx.fillStyle = n.color;
-      ctx.fillText(n.label.toUpperCase(), n.x, n.y + r + 8);
-      ctx.font = '10px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#8591bb";
-      ctx.fillText(sub, n.x, n.y + r + 24);
-    } else {
-      ctx.textAlign = "left";
-      ctx.font = '12px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#d9e1ff";
-      ctx.fillText(n.label, n.x + r + 8, n.y - 9);
-      ctx.font = '10px "Cascadia Mono", Consolas, monospace'; ctx.fillStyle = "#8591bb";
-      ctx.fillText(sub, n.x + r + 8, n.y + 5);
-    }
-  }
+  [...NODES.values()].sort((a, b) => (a === hover) - (b === hover)).forEach(n => drawNode(n, t));
 }
 requestAnimationFrame(draw);
 function hit(e){
   const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
   let best = null, bd = 1e9;
-  for (const n of N) { const rr = n.type === "brain" ? Math.min(W*0.07, H*0.16) : n.type === "client" ? 26 : n.type === "server" ? 22 : 16;
-    const d = Math.hypot(n.x - x, n.y - y); if (d < rr && d < bd) { best = n; bd = d; } }
+  NODES.forEach(n => { if (n.a < .5) return; const rr = n.type === "core" ? (n.sr || 60) : n.big ? 42 : radius(n) + 9;
+    const d = Math.hypot(n.x - x, n.y - y); if (d < rr && d < bd) { best = n; bd = d; } });
   return best;
 }
 cv.addEventListener("mousemove", e => { hover = hit(e); cv.style.cursor = hover ? "pointer" : "default"; });
+cv.addEventListener("mouseleave", () => hover = null);
 cv.addEventListener("click", e => {
   const n = hit(e); if (!n) return;
-  if (n.type === "brain") openRules(); else if (n.type === "client") openClient(n.key);
-  else if (n.type === "server") openServer(n.key); else if (n.type === "tool") openTool(n.server, n.key);
-  else if (n.type === "model") openModel(n.key, n.claude);
+  if (focusable(n.id) && !(mode.kind === "focus" && mode.id === n.id)) setFocus(n.id);
+  openRef(nodeToRef(n), true);
+});
+addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if ($("#app").classList.contains("open")) closeDossier(); else if (mode.kind === "focus") unfocus();
 });
 
-// ---------- boot
-setView("map");
-loadConfig(false).then(() => { renderBanners(); poll(); }).catch(() => { failed = true; renderLive(); setTimeout(() => location.reload(), 3000); });
-setInterval(() => loadConfig(false).then(renderBanners).catch(() => {}), 60000);
+// ---------- boot: real numbers only
+function boot(){
+  let seen = false; try { seen = sessionStorage.getItem("ce-boot") === "1"; sessionStorage.setItem("ce-boot", "1"); } catch (e) {}
+  const el = $("#boot");
+  if (seen || reduce) { el.classList.add("done"); return; }
+  const dots = (s, n) => s + " " + ".".repeat(Math.max(2, n - s.length)) + " ";
+  const ag = procs("antigravity").length, T = SYS.ledger?.total_stats;
+  const famTxt = famList().filter(k => SYS.fam[k].pools.length).map(k => FAM[k].n+" "+SYS.fam[k].pools.length).join(" · ");
+  const lines = [
+    `<span class="p">&gt;</span> ${esc(dots("узел", 26))}${esc(CFG.host || "—")}`,
+    `<span class="p">&gt;</span> ${esc(dots("процессы агентов", 26))}${procs().length} найдено`,
+    `<span class="p">&gt;</span> ${esc(dots("antigravity", 26))}${ag ? `<span class="g">ONLINE</span> (${ag} проц.)` : `<span class="y">OFFLINE</span>`}`,
+    `<span class="p">&gt;</span> ${esc(dots(SYS.core?.name || "мост", 26))}${SYS.tools.length} инструментов`,
+    `<span class="p">&gt;</span> ${esc(dots("пулы моделей", 26))}${SYS.providers.length}${famTxt ? " ("+esc(famTxt)+")" : ""}`,
+    `<span class="p">&gt;</span> ${esc(dots("роли", 26))}${SYS.agents.length}`,
+    `<span class="p">&gt;</span> ${esc(dots("токены", 26))}${T ? fmtN(T.total_tokens)+" · "+fmtUsd(T.total_cost_usd) : "учёт не найден"}`,
+    ...ALWAYS.filter(k => !SYS.fam[k].pools.length).map(k => `<span class="p">&gt;</span> ${esc(dots(FAM[k].n.toLowerCase(), 26))}<span class="r">НЕ ПОДКЛЮЧЕНА</span>`),
+    `<span class="p">&gt;</span> ${esc(dots("claude cli", 26))}${cliOk() ? `<span class="g">найден</span>` : `<span class="y">не установлен</span>`}`,
+    `<span class="g">&gt; система на связи_</span>`];
+  let i = 0; const pre = $("#bootText");
+  const tick = () => { if (i < lines.length) { pre.innerHTML += lines[i++] + "\n"; setTimeout(tick, 120); } else setTimeout(() => el.classList.add("done"), 700); };
+  el.onclick = () => el.classList.add("done"); tick();
+}
+
+// ---------- start
+setView(view);
+Promise.all([getJSON("/api/config"), getJSON("/api/state")]).then(([c, s]) => {
+  CFG = c; ST = s; lastOk = Date.now(); refreshAll(); boot(); setTimeout(poll, 2000);
+}).catch(() => { $("#bootText").textContent = "нет связи с сервером приложения, повторяю…"; failed = true; setTimeout(() => location.reload(), 3000); });
+setInterval(() => loadConfig(false).catch(() => {}), 60000);
+if (document.fonts) document.fonts.ready.then(() => { lastPane = ""; render(); });
 </script>
 </body>
 </html>
