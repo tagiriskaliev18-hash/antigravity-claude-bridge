@@ -633,7 +633,8 @@ function noticeSum(c){
     const C = c.council || {}, members = C.members?.length ? C.members : SYS.council?.members || [], chair = C.chair || SYS.council?.chair;
     const st = members.map(id => memberState(c, id).st), n = k => st.filter(x => x === k).length;
     const parts = [n("ok") && "ответили " + n("ok"), n("run") && "думают " + n("run"), n("wait") && "ждут " + n("wait"), n("no") && "не ответили " + n("no")].filter(Boolean);
-    return `участников ${members.length}: ${parts.join(", ")}${chair ? " · итог пишет " + roleName(chair) : ""}`;
+    const verdict = !isRun(c) ? "итог: " : C.verdict_ts ? "итог пишет " : "итог напишет ";
+    return `участников ${members.length}: ${parts.join(", ")}${chair ? " · " + verdict + roleName(chair) : ""}`;
   }
   const steps = c.route || [], last = steps[steps.length - 1];
   if (!last) return isRun(c) ? "мост принял вызов, модель ещё не выбрана" : "";
