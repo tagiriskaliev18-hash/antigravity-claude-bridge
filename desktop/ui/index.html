@@ -279,7 +279,7 @@ textarea:focus,select:focus,input:focus{border-color:var(--line3);outline:none}
 .send-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .send-row .hint{color:var(--fg3);font:400 10.5px var(--mono);font-stretch:87.5%;margin-right:auto}
 .chat-side{overflow:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:18px;min-width:0;scrollbar-width:thin}
-.agstep{display:grid;grid-template-columns:52px minmax(0,1fr);gap:8px;font-size:12px;padding:5px 0;border-top:1px solid var(--line)}
+.agstep{display:grid;grid-template-columns:62px minmax(0,1fr);gap:8px;font-size:12px;padding:5px 0;border-top:1px solid var(--line)}
 .agstep:first-child{border-top:0}
 .agstep .t{font:400 10px/18px var(--mono);font-stretch:87.5%;color:var(--fg3)}
 .agstep .k{font:400 10px var(--mono);font-stretch:87.5%;color:var(--fg3);text-transform:uppercase;letter-spacing:.08em}
@@ -345,6 +345,9 @@ const fmtTok = v => { v = num(v); if (v == null) return "—"; if (v >= 1e6) ret
 const fmtUsd = v => { v = num(v); if (v == null) return "—"; if (v === 0) return "$0"; return "$" + (v < 0.01 ? v.toFixed(6).replace(/0+$/, "") : v.toFixed(2)); };
 const fmtTime = t => t ? new Date(t*1000).toLocaleTimeString("ru-RU") : "—";
 const fmtHM = t => t ? new Date(t*1000).toLocaleTimeString("ru-RU", {hour:"2-digit", minute:"2-digit"}) : "—";
+// time of day for today, date and time for anything older, so old events never pass for fresh ones
+const fmtWhen = t => { if (!t) return "—"; const d = new Date(t*1000), n = new Date();
+  return d.toDateString() === n.toDateString() ? d.toLocaleTimeString("ru-RU") : d.toLocaleString("ru-RU", {day:"2-digit", month:"2-digit", hour:"2-digit", minute:"2-digit"}).replace(",", ""); };
 const fmtDate = t => t ? new Date(t*1000).toLocaleString("ru-RU",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
 const fmtAgo = t => { if (!t) return "—"; const s = Math.max(0, Date.now()/1000 - t);
   if (s < 60) return Math.round(s)+" с назад"; if (s < 3600) return Math.round(s/60)+" мин назад";
@@ -786,12 +789,33 @@ function viewRoles(){
 // ---------- Antigravity
 const AG_KIND = {USER_INPUT:"запрос", PLANNER_RESPONSE:"шаг модели", GENERIC:"результат", SYSTEM_MESSAGE:"система", CHECKPOINT:"чекпойнт", ERROR_MESSAGE:"ошибка"};
 const TOOL_RU = {view_file:"читает файл", run_command:"команда", replace_file_content:"правит файл", write_to_file:"пишет файл", manage_task:"задачи", search_web:"поиск в сети", call_mcp_tool:"MCP"};
+// "Resets in 2h6m32s" is relative to the error; say when that is, and whether it has already passed
+const agResetText = r => r > nowS() ? `лимит вернётся в ${fmtWhen(r)}` : `лимит уже обновился (${fmtWhen(r)})`;
+const agErrKey = x => String(x.text || "").replace(/\(attempt \d+\)/i, "").replace(/Resets in [^.]*\.?/i, "").trim();
+// Antigravity retries a failed request several times: show a run of the same error as one row
+function agGroup(steps){
+  const out = [];
+  steps.forEach(x => { const prev = out[out.length - 1];
+    if (prev && x.type === "ERROR_MESSAGE" && prev.type === "ERROR_MESSAGE" && agErrKey(prev) === agErrKey(x)) { prev.n = (prev.n || 1) + 1; prev.ts0 = prev.ts0 || prev.ts; Object.assign(prev, {ts:x.ts, text:x.text, reset_at:x.reset_at, i1:x.i}); }
+    else out.push({...x, i0:x.i}); });
+  return out;
+}
 function agStepHtml(x){
   const tools = (x.tools || []).map(t => t.name === "call_mcp_tool" ? `MCP ${esc(t.server || "")} → <b>${esc(t.tool || "")}</b>${t.summary ? ": "+esc(t.summary) : ""}` : `<span class="faint">${esc(TOOL_RU[t.name] || t.name)}</span> ${esc(t.summary || "")}`).join("<br>");
-  const text = x.text ? esc(x.text) : "";
-  return `<div class="agstep ${x.status === "RUNNING" ? "run" : x.type === "ERROR_MESSAGE" || x.status === "ERROR" ? "err" : ""}"><span class="t">${x.ts ? fmtTime(x.ts) : "—"}</span>
-    <div><div class="k">${esc(AG_KIND[x.type] || x.type)}${x.status === "RUNNING" ? " · идёт" : ""}</div><div class="d">${tools || text || `<span class="faint">шаг ${x.i}</span>`}</div></div></div>`;
+  let text = x.text ? esc(x.reset_at ? String(x.text).replace(/Resets in [^.]*\.?/i, "").trim() : x.text) : "";
+  if (x.reset_at) text += ` <b style="color:var(--fg)">${esc(agResetText(x.reset_at))}</b>`;
+  const att = (x.text || "").match(/\(attempt (\d+)\)/i), first = x.n > 1 && att ? Number(att[1]) - x.n + 1 : null;
+  const rep = x.n > 1 ? ` · ×${x.n}${first ? `, попытки ${first}–${att[1]}` : ""}, ${fmtWhen(x.ts0)}–${fmtWhen(x.ts)}` : "";
+  return `<div class="agstep ${x.status === "RUNNING" ? "run" : x.type === "ERROR_MESSAGE" || x.status === "ERROR" ? "err" : ""}"><span class="t">${x.ts ? fmtWhen(x.ts) : "—"}</span>
+    <div><div class="k">${esc(AG_KIND[x.type] || x.type)}${x.status === "RUNNING" ? " · идёт" : ""}${esc(rep)}</div><div class="d">${tools || text || `<span class="faint">шаг ${x.i}</span>`}</div></div></div>`;
 }
+// the model is stored only as an internal code such as MODEL_PLACEHOLDER_M26: say so instead of passing it off as a name
+const agModel = code => code ? `не определена <span class="faint mono">(код ${esc(code.replace(/^MODEL_PLACEHOLDER_/, ""))})</span>` : "—";
+// one line about the quota from the last quota error Antigravity logged
+const agQuota = c => c?.quota?.reset_at ? (c.quota.reset_at > nowS()
+    ? `<div class="banner" style="border-color:rgba(239,103,90,.5)">Квота Antigravity исчерпана: ошибка ${fmtWhen(c.quota.ts)}, ${esc(agResetText(c.quota.reset_at))}.</div>`
+    : `<p class="note">Последняя ошибка квоты была ${fmtWhen(c.quota.ts)}, ${esc(agResetText(c.quota.reset_at))}.</p>`) : "";
+const agIdle = c => c ? (c.active ? `<span style="color:var(--live)">выполняет шаг</span>` : `простаивает с ${fmtWhen(c.last?.ts || c.mtime)}`) : "—";
 const agModelText = code => code ? `${esc(code)} <span class="faint">(Antigravity хранит модель только этим кодом)</span>` : "не найдена в файлах";
 function viewAg(){
   const A = AG || AG_LIGHT(), ag = procs("antigravity");
@@ -800,14 +824,15 @@ function viewAg(){
   const projects = A.projects || [];
   return `<div class="kvs">
       <div><span class="lab">Antigravity</span><b>${ag.length ? "запущен" : "не запущен"}</b></div>
-      <div><span class="lab">Сейчас</span><b style="${cur?.active ? "color:var(--live)" : ""}">${cur ? cur.active ? "выполняет шаг" : fmtAgo(cur.mtime) : "—"}</b></div>
+      <div><span class="lab">Сейчас</span><b style="font-size:14px">${agIdle(cur)}</b></div>
       <div><span class="lab">Шагов в разговоре</span><b>${cur ? fmtN(cur.steps) : "—"}</b></div>
-      <div><span class="lab">Код модели</span><b style="font-size:13px">${esc(A.model_code || "—")}</b></div>
+      <div><span class="lab">Модель</span><b style="font-size:13px">${agModel(A.model_code)}</b></div>
     </div>
+    ${agQuota(cur)}
     <p class="note" style="margin-top:12px">Шаги читаются из локальных файлов Antigravity (только чтение). Отправить сообщение прямо в окно Antigravity нельзя: у него нет для этого входа. Задачу для моделей моста можно отправить из <button class="btn" data-view="chat">чата</button>, а текст для Antigravity скопировать кнопкой в чате.</p>
     ${cur ? `<h3 class="sec">${cur.active ? "Текущий разговор" : "Последний разговор"} <small>${esc(cur.id.slice(0, 8))} · изменён ${fmtDate(cur.mtime)}${cur.errors_recent ? " · ошибок в последних шагах: "+cur.errors_recent : ""}</small></h3>
       ${cur.title ? `<p class="lead">«${esc(cur.title)}»</p>` : ""}
-      <div class="list" style="padding:2px 10px">${(cur.tail || []).slice().reverse().map(agStepHtml).join("") || `<div class="empty">Шаги появятся здесь.</div>`}</div>` : `<div class="empty">Разговоров Antigravity пока нет.</div>`}
+      <div class="list" style="padding:2px 10px">${agGroup(cur.tail || []).reverse().map(agStepHtml).join("") || `<div class="empty">Шаги появятся здесь.</div>`}</div>` : `<div class="empty">Разговоров Antigravity пока нет.</div>`}
     ${conv.length > 1 ? `<h3 class="sec">Другие разговоры</h3><div class="list">${conv.slice(1).map(c => `<div><span>${esc(c.title || c.id.slice(0, 8))}</span><span class="r">${fmtN(c.steps)} шагов · ${fmtDate(c.mtime)}</span></div>`).join("")}</div>` : ""}
     <h3 class="sec">Проекты Antigravity <small>.gemini\\config\\projects</small></h3>
     ${projects.length ? `<div class="grid">${projects.map(p => `<div class="card" style="cursor:default"><h4>${esc(p.name || p.id)}</h4>
@@ -815,7 +840,7 @@ function viewAg(){
         <div class="row">${Object.entries(p.settings || {}).map(([k, v]) => `<span class="tag">${esc(k.replace(/Policy|Mode$/, ""))}: ${esc(v)}</span>`).join("")}</div>
         <div class="row">${p.folders[0] ? `<button class="btn" data-act="ask-project:${esc(p.folders[0])}">Спросить в чате</button>${A.exe ? `<button class="btn" data-act="ag-open:${esc(p.folders[0])}">Открыть в Antigravity</button>` : ""}` : ""}</div></div>`).join("")}</div>` : `<div class="empty">Проектов в настройках Antigravity нет.</div>`}
     <h3 class="sec">Чего не видно</h3>
-    <ul class="prose" style="padding-left:18px;margin:0;color:var(--fg2)"><li>Название модели: в файлах Antigravity есть только внутренний код ${esc(A.model_code || "")}.</li><li>Остаток квоты Antigravity: он хранится не в файлах.</li><li>Текст ответов модели и результаты команд приложение не показывает, только краткие описания шагов.</li></ul>`;
+    <ul class="prose" style="padding-left:18px;margin:0;color:var(--fg2)"><li>Название модели: в файлах Antigravity есть только внутренний код ${esc(A.model_code || "")}.</li><li>Остаток квоты Antigravity: его нет в файлах. Видны только ошибки квоты и время сброса, которое Antigravity в них пишет.</li><li>Текст ответов модели и результаты команд приложение не показывает, только краткие описания шагов.</li></ul>`;
 }
 
 // ---------- chat
@@ -959,8 +984,9 @@ function renderChatSide(){
         : `<span class="muted" style="font-size:12.5px">Без проекта модели видят только текст вопроса. С проектом мост приложит карту папки, README и файлы, которые ты назовёшь; .env, ключи и базы данных не отправляются.</span>`}
     </section>
     <section class="sec6"><div class="lab">Antigravity</div>
-      ${A?.found ? `<div style="font-size:12.5px">${procs("antigravity").length ? cur?.active ? `<span style="color:var(--live)">выполняет шаг</span>` : "запущен, ждёт" : "не запущен"} · модель: <span class="mono">${esc(A.model_code || "—")}</span></div>
-        ${cur ? `<div class="faint" style="font-size:12px">${cur.title ? "«" + esc(cur.title.slice(0, 90)) + "» · " : ""}${fmtN(cur.steps)} шагов</div><div style="margin-top:4px">${(cur.tail || []).slice(-6).reverse().map(agStepHtml).join("")}</div>` : ""}
+      ${A?.found ? `<div style="font-size:12.5px">${procs("antigravity").length ? agIdle(cur) : "не запущен"} · модель ${agModel(A.model_code)}</div>
+        ${agQuota(cur)}
+        ${cur ? `<div class="faint" style="font-size:12px">${cur.title ? "«" + esc(cur.title.slice(0, 90)) + "» · " : ""}${fmtN(cur.steps)} шагов</div><div style="margin-top:4px">${agGroup(cur.tail || []).slice(-6).reverse().map(agStepHtml).join("")}</div>` : ""}
         <button class="btn" data-view="ag" style="align-self:flex-start">Все шаги</button>` : `<span class="muted" style="font-size:12.5px">Данные Antigravity не найдены.</span>`}
     </section>
     ${running.length ? `<section class="sec6"><div class="lab">Мост сейчас занят</div>${running.map(c => `<button data-open="call:${esc(c.id)}" style="text-align:left;font-size:12.5px">${esc(clientName(c.client))} · ${esc(callHeadline(c))}</button>`).join("")}</section>` : ""}`);

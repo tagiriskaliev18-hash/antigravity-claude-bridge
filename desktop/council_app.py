@@ -956,6 +956,18 @@ def ag_model_code():
         return None
 
 
+AG_TAG = re.compile(r"</?[A-Z][A-Z0-9_]*>")
+AG_RESET = re.compile(r"[Rr]esets in\s+(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?")
+
+
+def ag_user_text(content):
+    """The person's own words: Antigravity wraps them in tags such as <USER_REQUEST>."""
+    text = str(content or "")
+    m = re.search(r"<USER_REQUEST>(.*?)</USER_REQUEST>", text, re.S)
+    lines = [ln.strip() for ln in AG_TAG.sub("\n", m.group(1) if m else text).splitlines()]
+    return "\n".join(ln for ln in lines if ln)
+
+
 def ag_step(d):
     """One transcript line, reduced to what the app shows: type, status, time, tool names and their summaries."""
     step = {"i": d.get("step_index"), "type": d.get("type"), "source": d.get("source"), "status": d.get("status"),
@@ -971,9 +983,17 @@ def ag_step(d):
     if tools:
         step["tools"] = tools
     if d.get("type") == "USER_INPUT":
-        step["text"] = str(d.get("content") or "")[:300]
+        step["text"] = ag_user_text(d.get("content"))[:300]
     elif d.get("type") == "ERROR_MESSAGE":
-        step["text"] = str(d.get("error") or "")[:300]
+        err = str(d.get("error") or "")
+        step["text"] = err[:300]
+        # quota errors say "Resets in 2h6m32s", counted from the moment of the error
+        m = AG_RESET.search(err)
+        if m and step["ts"] and any(m.groups()):
+            h, mi, se = (int(x or 0) for x in m.groups())
+            step["reset_at"] = step["ts"] + h*3600 + mi*60 + se
+        if "RESOURCE_EXHAUSTED" in err or "quota" in err.lower():
+            step["quota"] = True
     return step
 
 
@@ -997,8 +1017,10 @@ def ag_conversation(folder):
                 except Exception:
                     continue
                 if d.get("type") == "USER_INPUT":
-                    title = str(d.get("content") or "").strip().splitlines()[0][:140] if d.get("content") else None
-                    break
+                    text = ag_user_text(d.get("content"))
+                    if text:
+                        title = text.splitlines()[0][:140]
+                        break
             fh.seek(max(0, st.st_size - 262144))
             tail = fh.read().decode("utf-8", errors="replace").splitlines()
         if st.st_size > 262144:
@@ -1014,10 +1036,12 @@ def ag_conversation(folder):
     except OSError:
         return None
     last = steps[-1] if steps else {}
+    quota = next((x for x in reversed(steps) if x.get("quota")), None)
     conv = {"id": os.path.basename(folder), "title": title, "mtime": st.st_mtime, "size": st.st_size, "steps": count,
             "errors_recent": errors, "last": last, "tail": steps[-40:],
             "marks": [[x["ts"], x["type"], x["status"]] for x in steps[-200:] if x.get("ts")],
-            "running_flag": any(x.get("status") == "RUNNING" for x in steps[-3:])}
+            "running_flag": any(x.get("status") == "RUNNING" for x in steps[-3:]),
+            "quota": {"ts": quota["ts"], "reset_at": quota.get("reset_at")} if quota else None}
     AG_CACHE[logs] = (key, conv)
     return conv
 
