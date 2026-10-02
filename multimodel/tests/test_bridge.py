@@ -42,6 +42,8 @@ class Gateway(BaseHTTPRequestHandler):
             return self.reply(401, {"error": {"message": "invalid api key"}})
         if model == "down":
             return self.reply(503, {"error": {"message": "unavailable"}})
+        if model == "novision" and isinstance(text, list):
+            return self.reply(400, {"error": {"message": "image input is not supported"}})
         if model == "flaky":
             FLAKY["n"] += 1
             if FLAKY["n"] % 2 == 1:
@@ -223,6 +225,54 @@ class BridgeTest(unittest.TestCase):
         self.assertTrue([f for f in os.listdir(os.path.dirname(cfg)) if ".bak-" in f])
         self.assertFalse(os.path.exists(old))
         self.assertTrue([f for f in os.listdir(self.dir) if f.startswith("multillm_bridge.py.retired-")])
+
+    def test_attachments_reach_every_consilium_member_and_chair(self):
+        import zipfile
+        note = os.path.join(self.dir, "plan.txt")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("ядро ОС: планировщик задач")
+        doc = os.path.join(self.dir, "spec.docx")
+        with zipfile.ZipFile(doc, "w") as z:
+            z.writestr("word/document.xml", "<w:document><w:p><w:t>браузер: песочница</w:t></w:p></w:document>")
+        secret = os.path.join(self.dir, ".env")
+        with open(secret, "w") as fh:
+            fh.write("KEY=1")
+        out = self.b.call_tool("consilium", {"task": "оцени план", "rounds": 1, "attachments": [note, doc, secret]})
+        self.assertIn("Уверенность итога", out)
+        texts = [t for _, t in CALLS]
+        self.assertTrue(texts and all("ядро ОС: планировщик задач" in t and "браузер: песочница" in t for t in texts))
+        self.assertFalse(any("KEY=1" in t for t in texts))
+        self.assertTrue(all(".env: похож на файл с ключами" in t for t in texts))
+
+    def test_auto_run_routes_on_the_question_not_the_attachment(self):
+        f = os.path.join(self.dir, "a.txt")
+        with open(f, "w", encoding="utf-8") as fh:
+            fh.write("security уязвимость xss " * 20)
+        out = self.b.call_tool("auto_run", {"task": "привет", "attachments": [f]})
+        self.assertNotIn("security_auditor", out.split("\n")[0] + out[-300:])
+        self.assertIn("security уязвимость", CALLS[-1][1])
+
+    def test_images_go_to_vision_pools_and_others_get_text(self):
+        img = os.path.join(self.dir, "screen.png")
+        with open(img, "wb") as fh:
+            fh.write(b"\x89PNG\r\n\x1a\nfake")
+        cfg = json.load(open(os.path.join(self.dir, "providers.json"), encoding="utf-8"))
+        cfg["providers"]["good"]["vision"] = True
+        cfg["providers"]["blind"] = dict(cfg["providers"]["good"], model="novision", vision=True)
+        self.write("providers.json", cfg)
+        self.b.call_tool("model_ask", {"provider": "good", "question": "что на экране?", "attachments": [img]})
+        sent = CALLS[-1][1]
+        self.assertIsInstance(sent, list)
+        self.assertTrue(sent[1]["image_url"]["url"].startswith("data:image/png;base64,"))
+        self.assertIn("screen.png", sent[0]["text"])
+        CALLS.clear()
+        self.b.call_tool("model_ask", {"provider": "good2", "question": "что на экране?", "attachments": [img]})
+        self.assertIsInstance(CALLS[-1][1], str)  # model name without vision: text only, told about the picture
+        self.assertIn("Если ты их не видишь", CALLS[-1][1])
+        CALLS.clear()
+        out = self.b.call_tool("model_ask", {"provider": "blind", "question": "что на экране?", "attachments": [img]})
+        self.assertIn("Ответ модели novision", out)
+        self.assertEqual([type(t) for _, t in CALLS], [list, str])  # rejected pictures, asked again with text
 
     def test_mcp_tools_list(self):
         names = [t["name"] for t in self.b.TOOLS]

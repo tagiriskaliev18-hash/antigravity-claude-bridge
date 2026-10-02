@@ -37,7 +37,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-VERSION = "4.0.0"
+VERSION = "4.1.0"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HOME = os.path.expanduser("~")
 IS_WIN = sys.platform == "win32"
@@ -607,6 +607,188 @@ def project_context(folder, task="", files=None):
     return "\n\n".join(parts), used
 
 
+# Files the user attached to a request (any folder, not only the project): their text goes into the task itself,
+# so every member of a consilium, its chair and the Claude CLI see the same material.
+ATTACH_BUDGET = int(os.environ.get("AI_BRIDGE_ATTACH_CHARS", "60000"))
+IMAGE_EXT = re.compile(r"\.(png|jpe?g|gif|webp|bmp|svg|ico|heic|tiff?)$", re.I)
+
+
+def _xml_text(xml, para_tag):
+    xml = re.sub(r"<%s[ >]" % para_tag, "\n\\g<0>", xml)
+    text = re.sub(r"<[^>]+>", "", xml)
+    import html
+    return re.sub(r"\n{3,}", "\n\n", html.unescape(text)).strip()
+
+
+def extract_docx(path):
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        return _xml_text(z.read("word/document.xml").decode("utf-8", errors="replace"), "w:p")
+
+
+def extract_pptx(path):
+    import zipfile
+    with zipfile.ZipFile(path) as z:
+        slides = sorted((n for n in z.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", n)),
+                        key=lambda n: int(re.search(r"(\d+)", n.rsplit("/", 1)[1]).group(1)))
+        return "\n\n".join(f"[Слайд {i + 1}]\n" + _xml_text(z.read(n).decode("utf-8", errors="replace"), "a:p")
+                           for i, n in enumerate(slides))
+
+
+def extract_xlsx(path):
+    import zipfile
+    import html
+    with zipfile.ZipFile(path) as z:
+        names = z.namelist()
+        shared = []
+        if "xl/sharedStrings.xml" in names:
+            xml = z.read("xl/sharedStrings.xml").decode("utf-8", errors="replace")
+            shared = [html.unescape(re.sub(r"<[^>]+>", "", si)) for si in re.findall(r"<si>(.*?)</si>", xml, re.S)]
+        out = []
+        sheets = sorted(n for n in names if re.match(r"xl/worksheets/sheet\d+\.xml$", n))
+        for n in sheets:
+            xml = z.read(n).decode("utf-8", errors="replace")
+            rows = []
+            for row in re.findall(r"<row[^>]*>(.*?)</row>", xml, re.S):
+                cells = []
+                for attrs, body in re.findall(r"<c([^>]*)>(.*?)</c>", row, re.S):
+                    v = re.search(r"<v>(.*?)</v>", body, re.S) or re.search(r"<t[^>]*>(.*?)</t>", body, re.S)
+                    val = html.unescape(v.group(1)) if v else ""
+                    if 't="s"' in attrs and val.isdigit() and int(val) < len(shared):
+                        val = shared[int(val)]
+                    cells.append(val)
+                rows.append("\t".join(cells))
+            out.append(f"[Лист {n.rsplit('/', 1)[1][:-4]}]\n" + "\n".join(rows))
+        return "\n\n".join(out)
+
+
+def extract_pdf(path):
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        try:
+            from PyPDF2 import PdfReader
+        except ImportError:
+            return None
+    return "\n\n".join((page.extract_text() or "") for page in PdfReader(path).pages).strip()
+
+
+def read_attachment(path, limit):
+    """Text of one attached file, or (None, why) when it cannot be sent."""
+    name = os.path.basename(path)
+    if SECRET_FILE.search(name):
+        return None, "похож на файл с ключами или базу данных, не отправляется"
+    if not os.path.isfile(path):
+        return None, "файл не найден"
+    ext = os.path.splitext(name)[1].lower()
+    try:
+        if ext in (".docx", ".pptx", ".xlsx"):
+            text = {".docx": extract_docx, ".pptx": extract_pptx, ".xlsx": extract_xlsx}[ext](path)
+        elif ext == ".pdf":
+            text = extract_pdf(path)
+            if text is None:
+                return None, "для PDF нужен пакет pypdf: python -m pip install pypdf"
+            if not text:
+                return None, "в PDF нет текстового слоя (скан)"
+        else:
+            with open(path, "rb") as fh:
+                raw = fh.read(limit * 4 + 1)
+            if b"\0" in raw[:4096]:
+                return None, "двоичный файл, текст не извлекается"
+            try:
+                text = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                text = raw.decode("cp1251", errors="replace")
+    except Exception as e:
+        return None, f"не удалось прочитать: {e}"
+    if len(text) > limit:
+        text = text[:limit] + "\n…(файл обрезан)"
+    return text, None
+
+
+IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+MAX_IMAGES, MAX_IMAGE_BYTES = 6, 5_000_000
+# Pictures go to the models as image parts of the request; models that cannot see images get the text only.
+IMAGES = contextvars.ContextVar("attached_images", default=())
+VISION_MODEL = re.compile(r"gpt|grok|gemini|claude|opus|sonnet|kimi|vl|vision|4o|pixtral|llava", re.I)
+
+
+def read_image(path):
+    import base64
+    name = os.path.basename(path)
+    mime = IMAGE_MIME.get(os.path.splitext(name)[1].lower())
+    if not mime:
+        return None, "этот формат картинок не поддерживается (нужен png, jpg, gif или webp)"
+    if not os.path.isfile(path):
+        return None, "файл не найден"
+    if os.path.getsize(path) > MAX_IMAGE_BYTES:
+        return None, f"картинка больше {MAX_IMAGE_BYTES // 1_000_000} МБ"
+    with open(path, "rb") as fh:
+        return (name, mime, base64.b64encode(fh.read()).decode("ascii")), None
+
+
+def sees_images(p):
+    if "vision" in p:
+        return bool(p.get("vision"))
+    return bool(VISION_MODEL.search(str(prov_model(p) or "")))
+
+
+def user_content(task, p):
+    imgs = IMAGES.get()
+    if not imgs or not sees_images(p):
+        return task
+    return [{"type": "text", "text": task}] + [{"type": "image_url", "image_url": {"url": f"data:{m};base64,{b}"}}
+                                              for _, m, b in imgs]
+
+
+def ask_openai(pid, p, system_prompt, task):
+    """Chat request with attached pictures for pools that can see them; a pool that rejects pictures is asked again
+    with the text only, and the answer says so."""
+    content = user_content(task, p)
+    r = call_openai(pid, p, [{"role": "system", "content": system_prompt}, {"role": "user", "content": content}])
+    if not r.ok and content is not task and r.kind == "PROVIDER_ERROR" and (r.http or 0) in (400, 413, 415, 422):
+        log(f"Provider '{pid}' rejected the attached images ({r.short_why()}), asking again with text only")
+        r = call_openai(pid, p, [{"role": "system", "content": system_prompt},
+                                 {"role": "user", "content": task + "\n\n(Картинки этот пул не принял, ответ дан только по тексту.)"}])
+    return r
+
+
+def attachments_block(paths):
+    """The attached files as one block for the task, plus a short report line per file; pictures go to IMAGES."""
+    paths = [p for p in as_list(paths) if p]
+    if not paths:
+        return "", ()
+    parts, notes, images, budget = [], [], [], ATTACH_BUDGET
+    for path in dict.fromkeys(paths):
+        name = os.path.basename(path)
+        if IMAGE_EXT.search(name):
+            img, why = read_image(path) if len(images) < MAX_IMAGES else (None, f"больше {MAX_IMAGES} картинок")
+            if img:
+                images.append(img)
+            else:
+                notes.append(f"{name}: {why}")
+            continue
+        if budget < 500:
+            notes.append(f"{name}: не поместился в лимит {ATTACH_BUDGET} символов")
+            continue
+        text, why = read_attachment(path, min(30000, budget - 200))
+        if text is None:
+            notes.append(f"{name}: {why}")
+            continue
+        parts.append(f"--- ПРИЛОЖЕННЫЙ ФАЙЛ {name} ---\n{text}")
+        budget -= len(parts[-1])
+    log(f"Attachments: {len(parts)} text files, {len(images)} images of {len(paths)}, {ATTACH_BUDGET - budget} chars")
+    block = ""
+    if parts:
+        block += "\n\nПользователь приложил файлы, их содержимое ниже:\n\n" + "\n\n".join(parts)
+    if images:
+        block += ("\n\nПользователь приложил изображения: " + ", ".join(n for n, _, _ in images)
+                  + ". Если ты их не видишь в запросе, прямо скажи об этом и не описывай их по догадке.")
+    if notes:
+        block += "\n\nНе приложены: " + "; ".join(notes) + "."
+    return block, tuple(images)
+
+
 def run_claude(work_folder, prompt, tools_arg=None, allow_writes=False, model=None, timeout=None):
     cfg = load_providers()[0]
     pid, p = cli_provider(cfg)
@@ -919,7 +1101,7 @@ def run_chain(chain, system_prompt, task, agent=None, tool=None, work_folder=Non
                 log("Claude CLI не обнаружен локально. Перехожу к следующему пулу цепочки.")
         elif p.get("type") == "openai_compatible":
             sp = system_prompt + (f"\n\nМатериалы проекта (прочитаны мостом с диска):\n{context}" if context else "")
-            r = call_openai(pid, p, [{"role": "system", "content": sp}, {"role": "user", "content": task}])
+            r = ask_openai(pid, p, sp, task)
         else:
             r = Reply(pid, False, f"PROVIDER_ERROR: неизвестный тип пула '{p.get('type')}'", "PROVIDER_ERROR")
         record(r, agent, tool)
@@ -1178,13 +1360,13 @@ def route_task(task, data=None):
     return default, "тема не распознана: роль по умолчанию", []
 
 
-def handle_auto_run(task, work_folder=None, files=None):
+def handle_auto_run(task, work_folder=None, files=None, attached=""):
     data = load_agents()[0]
     agent, why, hits = route_task(task, data)
     if not agent:
         return "AGENT_ERROR: в agents.json нет ни одной роли"
     log(f"Auto route: '{agent}' ({why}{'; слова: ' + ', '.join(hits) if hits else ''})")
-    res = agent_exec(agent, task, None, work_folder, tool="auto_run", files=files)
+    res = agent_exec(agent, task + attached, None, work_folder, tool="auto_run", files=files)
     pick = f"> Автовыбор: роль **{agent}** ({why}" + (f"; найдено: {', '.join(hits[:5])}" if hits else "") + ")."
     if any(h in task.lower() for h in CONSILIUM_HINTS):
         pick += " Задача похожа на выбор между вариантами: для нескольких независимых мнений вызови consilium."
@@ -1289,7 +1471,7 @@ def handle_model_ask(provider, question, work_folder=None, model=None, files=Non
         ctx = project_context(work_folder, question, files)[0] if work_folder else ""
         sp = f"Ты опытный инженер. Рабочая папка проекта: {folder}." + (
             f"\n\nМатериалы проекта (прочитаны мостом с диска):\n{ctx}" if ctx else "")
-        r = call_openai(pid, p, [{"role": "system", "content": sp}, {"role": "user", "content": question}])
+        r = ask_openai(pid, p, sp, question)
     record(r, tool="model_ask")
     note_health(r)
     if r.ok:
@@ -1462,7 +1644,8 @@ TOOLS = [
                                                       "focus": S("Что проверить в первую очередь")}, "required": ["work_folder"]}},
     {"name": "claude_ask", "description": "Claude Code отвечает на сложный вопрос по проекту, архитектуре или алгоритму, без правок.",
      "inputSchema": {"type": "object", "properties": {"work_folder": S("Абсолютный путь к папке проекта"),
-                                                      "question": S("Вопрос")}, "required": ["work_folder", "question"]}},
+                                                      "question": S("Вопрос"),
+                                                      "attachments": {"type": "array", "items": {"type": "string"}, "description": "Абсолютные пути к файлам из любой папки: текст, код, docx, xlsx, pptx, pdf (необязательно)"}}, "required": ["work_folder", "question"]}},
     {"name": "claude_implement", "description": "Claude Code сам вносит изменения в файлы проекта. Только для крайних случаев.",
      "inputSchema": {"type": "object", "properties": {"work_folder": S("Абсолютный путь к папке проекта"),
                                                       "instruction": S("Что сделать")}, "required": ["work_folder", "instruction"]}},
@@ -1472,7 +1655,8 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"agent": S("Роль, список: agents_list"), "task": S("Задача или код"),
                                                       "skill": S("Навык вместо навыков роли (необязательно)"),
                                                       "work_folder": S("Папка проекта: модели получат карту проекта, README и файлы, названные в задаче"),
-                                                      "files": S("Файлы проекта через запятую, которые нужно приложить (необязательно)")},
+                                                      "files": S("Файлы проекта через запятую, которые нужно приложить (необязательно)"),
+                                                      "attachments": {"type": "array", "items": {"type": "string"}, "description": "Абсолютные пути к файлам из любой папки: текст, код, docx, xlsx, pptx, pdf (необязательно)"}},
                      "required": ["agent", "task"]}},
     {"name": "agents_list", "description": "Список ролей: модели в цепочке, навыки, назначение, состав консилиума.",
      "inputSchema": {"type": "object", "properties": {}}},
@@ -1483,6 +1667,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {"provider": S("Пул, модель или семейство; пусто = пул по умолчанию"),
                                                       "question": S("Вопрос или задача"), "work_folder": S("Папка проекта"),
                                                       "files": S("Файлы проекта через запятую (необязательно)"),
+                                                      "attachments": {"type": "array", "items": {"type": "string"}, "description": "Абсолютные пути к файлам из любой папки: текст, код, docx, xlsx, pptx, pdf (необязательно)"},
                                                       "model": S("Другая модель того же шлюза (необязательно)")},
                      "required": ["question"]}},
     {"name": "models_list", "description": "Пулы моделей: модель, шлюз, есть ли ключ, какие роли используют, токены и последний ответ. "
@@ -1492,7 +1677,8 @@ TOOLS = [
                                         "по словам в ней и отдаёт ей задачу; короткие простые задачи уходят на быструю дешёвую модель. "
                                         "В ответе написано, какая роль выбрана и почему.",
      "inputSchema": {"type": "object", "properties": {"task": S("Задача"), "work_folder": S("Папка проекта"),
-                                                      "files": S("Файлы проекта через запятую (необязательно)")},
+                                                      "files": S("Файлы проекта через запятую (необязательно)"),
+                                                      "attachments": {"type": "array", "items": {"type": "string"}, "description": "Абсолютные пути к файлам из любой папки: текст, код, docx, xlsx, pptx, pdf (необязательно)"}},
                      "required": ["task"]}},
     {"name": "consilium", "description": "Консилиум моделей: участники (по умолчанию DeepSeek, GLM, MiniMax, Kimi и Grok) сначала отвечают "
                                          "независимо, во втором раунде читают ответы друг друга без имён, критикуют и уточняют свои; "
@@ -1500,6 +1686,7 @@ TOOLS = [
                                          "Для архитектурных решений и выбора между вариантами. Полный протокол сохраняется в файл.",
      "inputSchema": {"type": "object", "properties": {"task": S("Вопрос или задача для консилиума"), "work_folder": S("Папка проекта"),
                                                       "files": S("Файлы проекта через запятую (необязательно)"),
+                                                      "attachments": {"type": "array", "items": {"type": "string"}, "description": "Абсолютные пути к файлам из любой папки: текст, код, docx, xlsx, pptx, pdf (необязательно)"},
                                                       "members": S("Роли через запятую вместо состава по умолчанию"),
                                                       "chair": S("Роль председателя вместо заданной"),
                                                       "rounds": {"type": "integer", "description": "1 = только независимые ответы (дешевле), 2 = с взаимной критикой (по умолчанию)"}},
@@ -1516,6 +1703,19 @@ TOOLS = [
 def call_tool(name, args):
     wf = args.get("work_folder") or os.getcwd()
     given = args.get("work_folder") or None  # project materials go to gateway models only when a folder was named
+    attached, images = attachments_block(args.get("attachments")) if args.get("attachments") else ("", ())
+    token = IMAGES.set(images)
+    try:
+        return call_tool_inner(name, args, wf, given, attached)
+    finally:
+        IMAGES.reset(token)
+
+
+def call_tool_inner(name, args, wf, given, attached):
+    if attached:
+        for field in ("task", "question"):
+            if field in args and name != "auto_run":
+                args = dict(args, **{field: str(args.get(field) or "") + attached})
     if name == "claude_review":
         return handle_review(wf, args.get("focus", ""))
     if name == "claude_ask":
@@ -1536,7 +1736,7 @@ def call_tool(name, args):
         return handle_consilium(args.get("task", ""), given, args.get("members"), args.get("chair"), args.get("files"),
                                 args.get("rounds"))
     if name == "auto_run":
-        return handle_auto_run(args.get("task", ""), given, args.get("files"))
+        return handle_auto_run(args.get("task", ""), given, args.get("files"), attached)
     if name == "token_balance":
         return handle_token_balance()
     if name == "model_switch":

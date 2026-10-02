@@ -297,6 +297,10 @@ textarea{width:100%;resize:vertical;min-height:64px;max-height:260px;font:400 14
 textarea:focus,select:focus,input:focus{border-color:var(--line3);outline:none}
 .chk{display:inline-flex;gap:6px;align-items:center;color:var(--fg2);font-size:12.5px;cursor:pointer}
 .chk input{accent-color:var(--live)}
+.att-list{display:flex;flex-wrap:wrap;gap:6px}
+.att{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 10px;font:400 12px var(--mono);color:var(--fg2)}
+.att button{background:none;border:0;color:var(--fg3,var(--fg2));cursor:pointer;font-size:14px;line-height:1;padding:0 4px}
+.composer.drop{outline:1px dashed var(--live);outline-offset:-6px}
 .send-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .send-row .hint{color:var(--fg3);font:400 10.5px var(--mono);font-stretch:87.5%;margin-right:auto}
 .chat-side{overflow:auto;padding:16px 18px 24px;display:flex;flex-direction:column;gap:18px;min-width:0;scrollbar-width:thin}
@@ -935,7 +939,9 @@ function buildChat(){
         <div class="ctl"><div class="seg" id="cMode">${MODES.map(([k, n]) => `<button type="button" data-m="${k}">${n}</button>`).join("")}</div>
           <select id="cTarget" aria-label="Кому"></select><select id="cFolder" aria-label="Проект"></select></div>
         <textarea id="cText" placeholder="Задача или вопрос. Ctrl+Enter отправляет."></textarea>
-        <div class="ctl"><input type="text" id="cFiles" placeholder="файлы проекта через запятую, если нужно приложить" style="flex:1;min-width:200px">
+        <div class="att-list" id="cAtt"></div>
+        <div class="ctl"><button type="button" class="btn" id="cAttach" title="Текст, код, docx, xlsx, pptx, pdf и картинки png, jpg, webp (картинки видят модели, которые умеют смотреть изображения). Файлы можно перетащить в это поле. До 10 файлов, вместе до 25 МБ.">Прикрепить файлы</button><input type="file" id="cAttInput" multiple hidden>
+          <input type="text" id="cFiles" placeholder="файлы проекта через запятую, если нужно приложить" style="flex:1;min-width:200px">
           <label class="chk"><input type="checkbox" id="cFollow"> учитывать два прошлых ответа</label></div>
         <div class="send-row"><span class="hint" id="cHint"></span><button type="button" class="btn" id="cCopy">Скопировать для Antigravity</button><button type="submit" class="btn pri" id="cSend">Отправить</button></div>
       </form>
@@ -949,6 +955,14 @@ function buildChat(){
   $("#composer").onsubmit = e => { e.preventDefault(); sendChat(); };
   $("#cCopy").onclick = () => { const t = $("#cText").value.trim(); if (!t) return flash($("#cCopy"), "нечего копировать");
     copyText(t + (CH.folder ? "\n\nПроект: " + CH.folder : ""), $("#cCopy")); };
+  $("#cAttach").onclick = () => $("#cAttInput").click();
+  $("#cAttInput").onchange = e => { addAttachments(e.target.files); e.target.value = ""; };
+  const comp = $("#composer");
+  comp.addEventListener("dragover", e => { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); comp.classList.add("drop"); } });
+  comp.addEventListener("dragleave", () => comp.classList.remove("drop"));
+  comp.addEventListener("drop", e => { comp.classList.remove("drop"); if (e.dataTransfer?.files?.length) { e.preventDefault(); addAttachments(e.dataTransfer.files); } });
+  $("#cAtt").onclick = e => { const b = e.target.closest("[data-rm]"); if (b) { ATT.splice(+b.dataset.rm, 1); renderAttachments(); } };
+  renderAttachments();
   delegate($("#chatSide")); delegate($("#chatLog"));
   chatBuilt = true; lastLog = "";
 }
@@ -987,12 +1001,27 @@ function renderChatHint(){
   $("#cSend").disabled = CH.mode === "claude" && !CH.folder;
   $("#cSend").title = $("#cSend").disabled ? "Для Claude Code выбери проект" : "";
 }
+const ATT = [], ATT_MAX = 25e6;
+function addAttachments(list){
+  for (const f of list) {
+    if (ATT.length >= 10) { flash($("#cAttach"), "не больше 10 файлов"); break; }
+    if (ATT.reduce((n, a) => n + a.size, 0) + f.size > ATT_MAX) { flash($("#cAttach"), "вместе больше 25 МБ"); break; }
+    ATT.push({name: f.name, size: f.size, file: f});
+  }
+  renderAttachments();
+}
+function renderAttachments(){
+  const el = $("#cAtt"); if (!el) return;
+  el.innerHTML = ATT.map((a, i) => `<span class="att">${esc(a.name)} · ${a.size < 1e6 ? Math.max(1, Math.round(a.size / 1e3)) + " КБ" : (a.size / 1e6).toFixed(1) + " МБ"}<button type="button" data-rm="${i}" title="Убрать">×</button></span>`).join("");
+}
+const fileB64 = f => new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1] || ""); r.onerror = () => bad(r.error); r.readAsDataURL(f); });
 async function sendChat(){
   const text = $("#cText").value.trim(); if (!text) return;
   const btn = $("#cSend"); btn.disabled = true;
   try {
-    const job = await postJSON("/api/chat", {mode:CH.mode, agent:CH.agent, provider:CH.provider, folder:CH.folder, text, follow:CH.follow, files:$("#cFiles").value});
-    $("#cText").value = ""; $("#cFiles").value = "";
+    const attachments = await Promise.all(ATT.map(async a => ({name: a.name, data: await fileB64(a.file)})));
+    const job = await postJSON("/api/chat", {mode:CH.mode, agent:CH.agent, provider:CH.provider, folder:CH.folder, text, follow:CH.follow, files:$("#cFiles").value, attachments});
+    $("#cText").value = ""; $("#cFiles").value = ""; ATT.length = 0; renderAttachments();
     if (ST?.chat) ST.chat.jobs.push(job);
     renderChatLog(true);
   } catch (e) { flash(btn, "ошибка: " + e.message); }
@@ -1019,7 +1048,7 @@ function renderChatLog(toBottom){
   const html = jobs.length ? jobs.map(j => {
     const c = j.call ? calls().find(x => x.id === j.call) : null, run = j.status === "running";
     const tok = c ? callTok(c) : null;
-    const who = `<span>${fmtTime(j.ts)}</span><span class="tag ${j.mode === "consilium" ? "hi" : ""}">${esc(MODE_RU[j.mode] || j.mode)} · ${esc(jobTarget(j))}</span>${j.folder ? `<span class="tag">проект ${esc(base(j.folder))}</span>` : ""}${j.follow ? `<span class="tag">с прошлыми ответами</span>` : ""}
+    const who = `<span>${fmtTime(j.ts)}</span><span class="tag ${j.mode === "consilium" ? "hi" : ""}">${esc(MODE_RU[j.mode] || j.mode)} · ${esc(jobTarget(j))}</span>${j.folder ? `<span class="tag">проект ${esc(base(j.folder))}</span>` : ""}${j.follow ? `<span class="tag">с прошлыми ответами</span>` : ""}${(j.attachments || []).length ? `<span class="tag" title="${esc(j.attachments.join(", "))}">файлов: ${j.attachments.length}</span>` : ""}
       ${run ? `<span class="tag live" data-since="${j.ts}">${fmtSec(nowS() - j.ts)}</span>` : j.status === "error" ? `<span class="tag bad">ошибка · ${fmtMs(j.ms)}</span>` : `<span class="tag ok">${fmtMs(j.ms)}</span>`}`;
     let live = "";
     if (run) live = c ? `<div class="lab" style="margin-top:2px${c.consilium ? ";color:var(--live)" : ""}">${c.consilium ? "Созван консилиум: участники отвечают одновременно, потом председатель пишет итог" : "Сейчас отвечает"}</div>${c.consilium ? councilHtml(c) : routeHtml(c)}`
@@ -1041,7 +1070,7 @@ function renderChatSide(){
     <section class="sec6" style="border:0;padding:0"><div class="lab">Проект</div>
       ${proj ? `<div><b style="font-weight:540">${esc(proj.name)}</b><div class="mono faint" style="word-break:break-all">${esc(proj.path)}</div><div class="row" style="margin-top:6px">${proj.git ? `<span class="tag">git</span>` : ""}${proj.source.map(s => `<span class="tag">${esc(s === "Antigravity" ? "проект Antigravity" : s === "чат" ? "из чата" : "папка " + base(s))}</span>`).join("")}</div>
         ${A?.exe ? `<div class="row" style="margin-top:8px"><button class="btn" data-act="ag-open:${esc(proj.path)}">Открыть в Antigravity</button></div>` : ""}</div>`
-        : `<span class="muted" style="font-size:12.5px">Без проекта модели видят только текст вопроса. С проектом мост приложит карту папки, README и файлы, которые ты назовёшь; .env, ключи и базы данных не отправляются.</span>`}
+        : `<span class="muted" style="font-size:12.5px">Без проекта модели видят только текст вопроса и прикреплённые файлы. С проектом мост приложит карту папки, README и файлы, которые ты назовёшь; .env, ключи и базы данных не отправляются.</span>`}
     </section>
     <section class="sec6"><div class="lab">Antigravity</div>
       ${A?.found ? `<div style="font-size:12.5px">${procs("antigravity").length ? agIdle(cur) : "не запущен"} · модель ${agModel(A.model_code)}</div>

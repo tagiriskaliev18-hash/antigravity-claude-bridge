@@ -22,6 +22,7 @@ Usage:
 """
 import glob
 import http.server
+import base64
 import json
 import os
 import re
@@ -37,7 +38,7 @@ import urllib.request
 import webbrowser
 
 APP_NAME = "council-engine"
-APP_VERSION = "4.1.0"
+APP_VERSION = "4.2.0"
 PORT = int(os.environ.get("COUNCIL_PORT", "47615"))
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
 TAP = os.path.join(APP_DIR, "council_tap.py")
@@ -1156,6 +1157,9 @@ def list_projects():
 
 # ---------------------------------------------------------------- chat: requests through the same MCP bridge
 
+MAX_ATTACH_FILES = 10
+MAX_ATTACH_BYTES = 25_000_000
+
 CHAT_MODES = {
     "auto": ("auto_run", "task"),
     "role": ("agent_run", "task"),
@@ -1300,9 +1304,14 @@ class Chat:
         files = str(body.get("files") or "").strip()
         if files and mode != "claude":
             args["files"] = files
-        job = {"id": "%x" % int(now() * 1000), "ts": now(), "mode": mode, "tool": tool, "agent": args.get("agent"),
+        jid = "%x" % int(now() * 1000)
+        saved = self.save_attachments(jid, body.get("attachments"))
+        if saved:
+            args["attachments"] = saved
+        job = {"id": jid, "ts": now(), "mode": mode, "tool": tool, "agent": args.get("agent"),
                "provider": args.get("provider"), "folder": folder, "text": text, "follow": bool(body.get("follow")) and task != text,
-               "status": "running", "answer": None, "end": None, "ms": None, "call": None}
+               "status": "running", "answer": None, "end": None, "ms": None, "call": None,
+               "attachments": [os.path.basename(x) for x in saved]}
         with self.lock:
             if not self.alive():
                 self.start()
@@ -1312,6 +1321,34 @@ class Chat:
         self.jobs = self.jobs[-100:]
         self.request("tools/call", {"name": tool, "arguments": args}, job)
         return job
+
+    def save_attachments(self, jid, items):
+        """Files dropped into the chat: stored under ~/.council/chat/uploads/<request> and handed to the bridge by path."""
+        if not items:
+            return []
+        if not isinstance(items, list) or len(items) > MAX_ATTACH_FILES:
+            raise ValueError(f"можно приложить не больше {MAX_ATTACH_FILES} файлов")
+        folder = os.path.join(self.folder, "uploads", jid)
+        out, total = [], 0
+        for it in items:
+            name = os.path.basename(str((it or {}).get("name") or "")).strip().strip(".") or "file"
+            name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)[:120]
+            try:
+                data = base64.b64decode(str(it.get("data") or ""), validate=True)
+            except Exception:
+                raise ValueError("файл " + name + " не прочитан")
+            total += len(data)
+            if total > MAX_ATTACH_BYTES:
+                raise ValueError(f"файлы больше {MAX_ATTACH_BYTES // 1_000_000} МБ вместе")
+            os.makedirs(folder, exist_ok=True)
+            path, n = os.path.join(folder, name), 1
+            while os.path.exists(path):
+                stem, ext = os.path.splitext(name)
+                path, n = os.path.join(folder, f"{stem} ({n}){ext}"), n + 1
+            with open(path, "wb") as fh:
+                fh.write(data)
+            out.append(path)
+        return out
 
     def stop(self):
         with self.lock:
@@ -1464,7 +1501,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return self.send(403, {"error": "local only"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
-            body = json.loads(self.rfile.read(min(n, 2_000_000)).decode("utf-8")) if n else {}
+            if n > 40_000_000:
+                return self.send(413, {"error": "слишком большой запрос: файлы больше 25 МБ"})
+            body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
         except Exception:
             return self.send(400, {"error": "bad json"})
         u = urllib.parse.urlparse(self.path)
