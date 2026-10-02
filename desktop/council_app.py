@@ -836,9 +836,21 @@ class Activity:
 
 # ---------------------------------------------------------------- wiring
 
+def bundled_claude():
+    """The Claude desktop app keeps its own copy of the Claude Code CLI in %APPDATA%\\Claude\\claude-code\\<version>\\;
+    it is not on PATH, so look there too and take the newest version."""
+    root = os.path.join(os.environ.get("APPDATA") or os.path.join(HOME, "AppData", "Roaming"), "Claude", "claude-code")
+    try:
+        vers = [d for d in os.listdir(root) if os.path.isfile(os.path.join(root, d, "claude.exe"))]
+    except OSError:
+        return None
+    key = lambda v: [int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", v)]
+    return os.path.join(root, max(vers, key=key), "claude.exe") if vers else None
+
+
 def find_claude_cli():
     for c in (shutil.which("claude"), os.path.join(HOME, ".local", "bin", "claude.exe"),
-              os.path.join(HOME, ".local", "bin", "claude")):
+              os.path.join(HOME, ".local", "bin", "claude"), bundled_claude()):
         if c and os.path.isfile(c):
             return c
     return None
