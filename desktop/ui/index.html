@@ -1981,7 +1981,8 @@ function resize(){
   const dos = document.getElementById("app").classList.contains("open") ? (parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--dos")) || 440) : 0;
   renderer.setSize(w, h, false); composer.setSize(w, h); labels.setSize(w, h);
   camera.aspect = w/h; camera.setViewOffset(w, h, -(side - dos)/2, 30, w, h); camera.updateProjectionMatrix();
-  HOME.copy(HOME0).multiplyScalar(Math.max(1, Math.min(1.6, 1.37/Math.max(0.5, (w - side - dos)/h))));
+  // wide screens come a little closer, narrow ones back off, so the belt of pools spans the free width
+  HOME.copy(HOME0).multiplyScalar(Math.max(0.86, Math.min(1.6, 1.37/Math.max(0.5, (w - side - dos)/h))));
 }
 addEventListener("resize", resize);
 new MutationObserver(resize).observe(document.getElementById("app"), {attributes:true, attributeFilter:["class"]});
