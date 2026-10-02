@@ -19,7 +19,7 @@
     "reviewer": {
       "name": "Старший код-ревьюер (Senior Code Reviewer)",
       "primary_provider": "xyvero",
-      "fallback_providers": ["deepseek_v4_pro", "glm_5"],
+      "fallback_providers": ["kimi", "deepseek_v4_pro", "glm_5"],
       "skills": ["code-review"],
       "allowed_tools": "Read,Grep,Glob",
       "write_access": false,
@@ -27,8 +27,8 @@
     },
     "developer": {
       "name": "Инженер-разработчик (Core Developer)",
-      "primary_provider": "deepseek_v4_pro",
-      "fallback_providers": ["xyvero", "qwen_flash", "glm_5"],
+      "primary_provider": "kimi",
+      "fallback_providers": ["deepseek_v4_pro", "xyvero", "qwen_flash", "glm_5"],
       "skills": ["boilerplate-gen"],
       "allowed_tools": "Read,Grep,Glob",
       "write_access": false,

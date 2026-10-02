@@ -6,7 +6,7 @@ trigger: always_on
 
 Сервер `claude-bridge` (ai-bridge 4) даёт тебе, кроме `claude_review`, `claude_ask` и `claude_implement`, роли на разных моделях и консилиум.
 
-- `agent_run(agent, task)`: отдать задачу роли. Роли и их модели: `agents_list`. Основные: `architect` (DeepSeek V4 Pro), `glm_analyst` и `security_auditor` (GLM), `minimax_architect` (MiniMax), `kimi_researcher` (Kimi), `qwen_coder` и `fast_developer` (быстрые модели), `gpt_strategist` (GPT), `claude_chief` (Claude Code).
+- `agent_run(agent, task)`: отдать задачу роли. Роли и их модели: `agents_list`. Основные: `developer` (Kimi, запасная DeepSeek V4 Pro: главный по написанию кода), `architect` (DeepSeek V4 Pro), `glm_analyst` и `security_auditor` (GLM), `minimax_architect` (MiniMax), `kimi_researcher` (Kimi), `qwen_coder` и `fast_developer` (быстрые модели), `gpt_strategist` (GPT), `claude_chief` (Claude Code).
 - `auto_run(task)`: мост сам выберет роль по задаче и напишет, кого выбрал. Удобно, когда не ясно, какой роли отдать.
 - `consilium(task)`: DeepSeek, GLM, MiniMax, Kimi и Grok отвечают независимо, затем критикуют ответы друг друга, Claude пишет итог с уверенностью. Дорого (два раунда); только для архитектурных решений и новых модулей (`status: init`), не для мелочей. `rounds: 1` — один раунд, дешевле.
 - `model_ask(provider, question)`: вопрос одной модели напрямую; `provider` можно указать словом: deepseek, glm, minimax, kimi, qwen, grok, gpt, claude, gemini.
