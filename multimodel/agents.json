@@ -82,7 +82,7 @@
     "qwen_coder": {
       "name": "Кодер Qwen (Qwen Coder)",
       "primary_provider": "qwen_flash",
-      "fallback_providers": ["xyvero", "deepseek_v4_pro"],
+      "fallback_providers": ["xyvero", "kimi", "deepseek_v4_pro"],
       "skills": ["boilerplate-gen"],
       "allowed_tools": "Read,Grep,Glob",
       "write_access": false,
@@ -109,7 +109,7 @@
     "deepseek_expert": {
       "name": "Эксперт DeepSeek (DeepSeek Expert)",
       "primary_provider": "deepseek_v4_pro",
-      "fallback_providers": ["xyvero", "qwen_flash"],
+      "fallback_providers": ["kimi", "xyvero", "qwen_flash"],
       "skills": ["code-review", "boilerplate-gen"],
       "allowed_tools": "Read,Grep,Glob",
       "write_access": false,
