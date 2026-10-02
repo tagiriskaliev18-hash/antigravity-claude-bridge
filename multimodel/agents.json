@@ -1,0 +1,137 @@
+{
+  "default_agent": "developer",
+  "consilium": {
+    "members": ["architect", "glm_analyst", "minimax_architect", "kimi_researcher", "grok_analyst"],
+    "chair": "claude_chief",
+    "rounds": 2,
+    "note": "Раунд 1: участники отвечают одновременно, каждый своей моделью. Раунд 2: каждый читает ответы других без имён, критикует и уточняет свой. Председатель пишет итог с уверенностью. rounds: 1 — без второго раунда (дешевле)."
+  },
+  "agents": {
+    "architect": {
+      "name": "Архитектор систем (System Architect)",
+      "primary_provider": "deepseek_v4_pro",
+      "fallback_providers": ["minimax_m3", "xyvero", "glm_5"],
+      "skills": ["architecture-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Проектирует структуру новых модулей и сервисов, выбирает стек, фиксирует решения в формате ADR."
+    },
+    "reviewer": {
+      "name": "Старший код-ревьюер (Senior Code Reviewer)",
+      "primary_provider": "xyvero",
+      "fallback_providers": ["kimi", "deepseek_v4_pro", "glm_5"],
+      "skills": ["code-review"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Проверяет изменения: логические ошибки, граничные случаи, читаемость, производительность."
+    },
+    "developer": {
+      "name": "Инженер-разработчик (Core Developer)",
+      "primary_provider": "kimi",
+      "fallback_providers": ["deepseek_v4_pro", "xyvero", "qwen_flash", "glm_5"],
+      "skills": ["boilerplate-gen"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Пишет рабочий код по задаче вместе с тестами."
+    },
+    "fast_developer": {
+      "name": "Быстрый разработчик (Fast Developer)",
+      "primary_provider": "xyvero",
+      "fallback_providers": ["qwen_flash", "deepseek_v4_pro"],
+      "skills": ["boilerplate-gen"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Черновики, шаблоны и рутинный код на быстрых дешёвых моделях."
+    },
+    "glm_analyst": {
+      "name": "Аналитик GLM (GLM Analyst)",
+      "primary_provider": "glm_5",
+      "fallback_providers": ["deepseek_v4_pro", "xyvero"],
+      "skills": ["code-review", "architecture-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Второе мнение по коду и архитектуре от модели GLM."
+    },
+    "minimax_architect": {
+      "name": "Архитектор MiniMax (MiniMax Architect)",
+      "primary_provider": "minimax_m3",
+      "fallback_providers": ["deepseek_v4_pro", "xyvero"],
+      "skills": ["architecture-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Архитектурные обзоры больших систем и длинных документов на модели с длинным контекстом."
+    },
+    "kimi_researcher": {
+      "name": "Исследователь Kimi (Kimi Researcher)",
+      "primary_provider": "kimi",
+      "fallback_providers": ["minimax_m3", "deepseek_v4_pro"],
+      "skills": ["architecture-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Разбирает большие объёмы кода и документации, ищет риски и альтернативы. Пока ключа Kimi нет, отвечают запасные пулы."
+    },
+    "grok_analyst": {
+      "name": "Аналитик Grok (Grok Analyst)",
+      "primary_provider": "grok",
+      "fallback_providers": ["deepseek_v4_pro", "xyvero"],
+      "skills": ["architecture-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Независимый взгляд модели xAI: ищет слабые места, риски и альтернативные решения. Без ключа Grok отвечают запасные пулы."
+    },
+    "qwen_coder": {
+      "name": "Кодер Qwen (Qwen Coder)",
+      "primary_provider": "qwen_flash",
+      "fallback_providers": ["xyvero", "kimi", "deepseek_v4_pro"],
+      "skills": ["boilerplate-gen"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Быстрая генерация кода и тестов на Qwen."
+    },
+    "security_auditor": {
+      "name": "Аудитор информационной безопасности (Security Auditor)",
+      "primary_provider": "glm_5",
+      "fallback_providers": ["deepseek_v4_pro", "xyvero"],
+      "skills": ["security-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Ищет утечки секретов, инъекции, ошибки доступа и небезопасные зависимости."
+    },
+    "llmops": {
+      "name": "LLMOps-инженер (LLMOps Engineer)",
+      "primary_provider": "xyvero",
+      "fallback_providers": ["deepseek_v4_pro", "groq"],
+      "skills": ["llmops-tuning"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Подбор моделей, промптов, RAG и дообучения, оценка стоимости запросов."
+    },
+    "deepseek_expert": {
+      "name": "Эксперт DeepSeek (DeepSeek Expert)",
+      "primary_provider": "deepseek_v4_pro",
+      "fallback_providers": ["kimi", "xyvero", "qwen_flash"],
+      "skills": ["code-review", "boilerplate-gen"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Сложные алгоритмы и отладка на старшей модели DeepSeek."
+    },
+    "gpt_strategist": {
+      "name": "Стратег GPT (GPT Strategist)",
+      "primary_provider": "octava_gpt6",
+      "fallback_providers": ["deepseek_v4_pro", "glm_5"],
+      "skills": ["architecture-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Альтернативный взгляд на план и архитектуру от модели GPT."
+    },
+    "claude_chief": {
+      "name": "Главный ревьюер Claude (Claude Chief)",
+      "primary_provider": "claude",
+      "fallback_providers": ["octava_claude_opus", "deepseek_v4_pro"],
+      "skills": ["code-review", "security-audit"],
+      "allowed_tools": "Read,Grep,Glob",
+      "write_access": false,
+      "description": "Финальная проверка и председатель консилиума. Через Claude Code CLI сам читает файлы проекта."
+    }
+  }
+}

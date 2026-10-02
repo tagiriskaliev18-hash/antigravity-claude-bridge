@@ -6,3 +6,9 @@ venv/
 .venv/
 .idea/
 .vscode/
+
+# written by the bridge at runtime
+token_usage.json
+token_usage.json.lock
+consilium/
+*.bak-*

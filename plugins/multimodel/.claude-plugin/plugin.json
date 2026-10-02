@@ -1,0 +1,9 @@
+{
+  "name": "multimodel",
+  "version": "4.0.0",
+  "description": "Мультимодель ai-bridge в Claude Code: консилиум моделей в два раунда, автовыбор роли, прямые вопросы DeepSeek, GLM, MiniMax, Kimi, Qwen, Grok и GPT, паузы пулов и балансы ключей.",
+  "author": {"name": "Tagir Iskaliev"},
+  "repository": "https://github.com/tagiriskaliev18-hash/antigravity-claude-bridge",
+  "license": "MIT",
+  "keywords": ["multi-model", "consilium", "mcp", "deepseek", "kimi", "grok"]
+}

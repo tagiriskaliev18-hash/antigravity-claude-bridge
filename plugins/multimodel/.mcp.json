@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "ai-bridge": {
+      "command": "python",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/launch.py"]
+    }
+  }
+}
