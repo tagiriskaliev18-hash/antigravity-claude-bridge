@@ -38,12 +38,18 @@ $files = @{
     "config/CLAUDE.md"                      = (Join-Path $claudeDir "CLAUDE.md")
     "config/COUNCIL_PROMPT.md"              = (Join-Path $ToolsDir "COUNCIL_PROMPT.md")
 }
+# Only multillm_bridge.py and the council prompt are ours to replace. Everything else (claude_bridge.py,
+# GEMINI.md, CLAUDE.md, rules, skills) may belong to a newer setup such as ai-bridge / Council Engine,
+# so it is installed only when missing and never overwritten.
+$alwaysUpdate = @("tools/multillm_bridge.py", "config/COUNCIL_PROMPT.md")
 foreach ($src in $files.Keys) {
     $dst = $files[$src]
     New-Item -ItemType Directory -Path (Split-Path -Parent $dst) -Force | Out-Null
-    if ((Test-Path $dst) -and ($dst -like "*.md") -and -not (Test-Path "$dst.bak")) {
-        Copy-Item $dst "$dst.bak" -Force
+    if ((Test-Path $dst) -and ($alwaysUpdate -notcontains $src)) {
+        Write-Host "  $dst already exists, kept as is" -ForegroundColor DarkGray
+        continue
     }
+    if (Test-Path $dst) { Copy-Item $dst "$dst.bak" -Force }
     Invoke-WebRequest -UseBasicParsing -Uri "$raw/$src" -OutFile $dst
     Write-Host "  $src -> $dst" -ForegroundColor Green
 }
@@ -66,14 +72,16 @@ if (Test-Path $mcpFile) {
 if (-not $cfg) { $cfg = New-Object PSObject }
 if (-not $cfg.PSObject.Properties["mcpServers"]) { $cfg | Add-Member -NotePropertyName mcpServers -NotePropertyValue (New-Object PSObject) }
 $servers = $cfg.mcpServers
-$servers | Add-Member -Force -NotePropertyName "claude-bridge" -NotePropertyValue ([ordered]@{
-    command = $pythonExe; args = @($bridgePath); env = [ordered]@{ CLAUDE_BRIDGE_MODEL = "opus" }
-})
+if (-not $servers.PSObject.Properties["claude-bridge"]) {
+    $servers | Add-Member -NotePropertyName "claude-bridge" -NotePropertyValue ([ordered]@{
+        command = $pythonExe; args = @($bridgePath); env = [ordered]@{ CLAUDE_BRIDGE_MODEL = "opus" }
+    })
+}
 $servers | Add-Member -Force -NotePropertyName "multillm-bridge" -NotePropertyValue ([ordered]@{
     command = $pythonExe; args = @($multiPath); env = $keyEnv
 })
 [IO.File]::WriteAllText($mcpFile, ($cfg | ConvertTo-Json -Depth 10), $utf8)
-Write-Host "  Updated $mcpFile (other servers kept, backup: mcp_config.json.bak)" -ForegroundColor Green
+Write-Host "  Updated multillm-bridge in $mcpFile (existing claude-bridge and other servers kept, backup: mcp_config.json.bak)" -ForegroundColor Green
 
 Write-Host "[4/5] Configuring Claude Code..." -ForegroundColor Yellow
 # Native commands write to stderr; with "Stop" Windows PowerShell 5.1 would treat that as a fatal error
