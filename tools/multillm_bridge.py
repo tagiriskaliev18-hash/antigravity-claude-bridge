@@ -5,6 +5,9 @@ import urllib.request
 import urllib.error
 import subprocess
 import traceback
+import shutil
+import time
+from concurrent.futures import ThreadPoolExecutor
 
 PROVIDERS = [
     {
@@ -53,6 +56,14 @@ PROVIDERS = [
         "priority": 5
     }
 ]
+
+# Дополнительные провайдеры (новые ключи) без правки кода: JSON-список в переменной окружения, например
+# MULTILLM_EXTRA_PROVIDERS='[{"name":"mykey","base_url":"https://host/v1","api_key":"sk-...","supported_models":["gpt-6-astra"],"priority":9}]'
+try:
+    PROVIDERS.extend(json.loads(os.environ.get("MULTILLM_EXTRA_PROVIDERS", "[]")))
+except Exception as e:
+    sys.stderr.write(f"[multillm-bridge] MULTILLM_EXTRA_PROVIDERS ignored: {e}\n")
+PROVIDERS = [p for p in PROVIDERS if p.get("api_key")]
 
 DEFAULT_MODEL = os.environ.get("MULTILLM_DEFAULT_MODEL", "deepseek-v4.1-flash")
 
@@ -166,6 +177,117 @@ def handle_review(work_folder, focus="", model=None):
     )
     return handle_ask(prompt, model=chosen_model, system_prompt="Ты высококвалифицированный сеньор-разработчик и ревьюер.")
 
+# ---------------------------------------------------------------------------
+# Консилиум: несколько моделей отвечают параллельно, затем судья сводит ответы
+# ---------------------------------------------------------------------------
+
+COUNCIL_MEMBERS = [m.strip() for m in os.environ.get(
+    "MULTILLM_COUNCIL_MEMBERS",
+    "deepseek-v4-pro,gpt-6-astra,qwen3.8-max,glm-5.3,claude-opus-5-5"
+).split(",") if m.strip()]
+COUNCIL_JUDGE = os.environ.get("MULTILLM_COUNCIL_JUDGE", "claude-opus-5-5")
+CLAUDE_CLI_MEMBER = "claude-cli"  # локальный Claude Code CLI (подписка), а не API-ключ
+
+ROLE_HINTS = [
+    "архитектор: структура приложения, модули, стек, масштабирование",
+    "инженер по надежности и безопасности: ошибки, уязвимости, крайние случаи",
+    "продуктовый разработчик: UX, MVP, что сделать первым",
+    "прагматик-реализатор: конкретный код, библиотеки, шаги внедрения",
+    "критик: слабые места предложенных подходов и альтернативы",
+]
+
+def call_claude_cli(prompt, work_folder=None):
+    exe = shutil.which("claude") or shutil.which("claude.cmd")
+    if not exe:
+        raise RuntimeError("Claude Code CLI не найден в PATH")
+    proc = subprocess.run(
+        [exe, "-p", prompt],
+        cwd=work_folder or os.getcwd(),
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=600
+    )
+    out = (proc.stdout or "").strip()
+    if proc.returncode != 0 or not out:
+        raise RuntimeError(f"claude exit {proc.returncode}: {(proc.stderr or out)[:300]}")
+    return out
+
+def ask_member(member, messages, work_folder=None):
+    started = time.time()
+    try:
+        if member == CLAUDE_CLI_MEMBER:
+            text = call_claude_cli("\n\n".join(m["content"] for m in messages), work_folder)
+        else:
+            text = call_llm(member, messages)
+        ok = not text.startswith("LLM_ERROR")
+    except Exception as e:
+        text, ok = f"LLM_ERROR: {e}", False
+    log(f"Council member {member}: {'ok' if ok else 'failed'} in {time.time() - started:.1f}s")
+    return {"member": member, "ok": ok, "text": text}
+
+def fan_out(members, build_messages, work_folder=None):
+    with ThreadPoolExecutor(max_workers=len(members)) as pool:
+        futures = [pool.submit(ask_member, m, build_messages(i, m), work_folder) for i, m in enumerate(members)]
+        return [f.result() for f in futures]
+
+def format_answers(answers):
+    return "\n\n".join(f"=== Эксперт {i + 1} ({a['member']}) ===\n{a['text']}" for i, a in enumerate(answers))
+
+def handle_council(task, members=None, judge=None, context="", rounds=1, use_roles=True, work_folder=None):
+    if isinstance(members, str):
+        members = [m.strip() for m in members.split(",") if m.strip()]
+    members = members or COUNCIL_MEMBERS
+    judge = (judge or COUNCIL_JUDGE).strip()
+    rounds = max(1, min(int(rounds or 1), 3))
+    base = f"Задача:\n{task}"
+    if context:
+        base += f"\n\nКонтекст проекта:\n{context}"
+
+    def first_round(i, member):
+        role = ROLE_HINTS[i % len(ROLE_HINTS)] if use_roles else "независимый эксперт"
+        return [
+            {"role": "system", "content": f"Ты участник консилиума экспертов по разработке ПО. Твоя роль: {role}. Отвечай по существу, конкретно, на русском."},
+            {"role": "user", "content": base},
+        ]
+
+    answers = fan_out(members, first_round, work_folder)
+    failed = [a for a in answers if not a["ok"]]
+
+    for r in range(2, rounds + 1):
+        alive = [a for a in answers if a["ok"]]
+        if len(alive) < 2:
+            break
+        others = format_answers(alive)
+        def critique_round(i, member, others=others):
+            return [
+                {"role": "system", "content": "Ты участник консилиума экспертов по разработке ПО. Отвечай на русском."},
+                {"role": "user", "content": f"{base}\n\nОтветы консилиума в предыдущем раунде:\n{others}\n\n"
+                    "Найди ошибки и слабые места в чужих ответах, учти сильные идеи и дай свой улучшенный итоговый вариант."},
+            ]
+        answers = fan_out([a["member"] for a in alive], critique_round, work_folder)
+        failed += [a for a in answers if not a["ok"]]
+
+    good = [a for a in answers if a["ok"]]
+    report = [f"## Консилиум: {len(good)}/{len(members)} моделей ответили, раундов: {rounds}"]
+    if failed:
+        report.append("Не ответили: " + ", ".join(f"{a['member']} ({a['text'][:120].strip()})" for a in failed))
+    if not good:
+        return "LLM_ERROR: ни одна модель консилиума не ответила.\n" + "\n".join(report)
+
+    verdict = ask_member(judge, [
+        {"role": "system", "content": "Ты председатель консилиума и главный архитектор. Отвечай на русском."},
+        {"role": "user", "content": f"{base}\n\nОтветы экспертов:\n{format_answers(good)}\n\n"
+            "Сведи ответы в одно итоговое решение: 1) итоговая рекомендация и план шагов; "
+            "2) в чем эксперты согласны; 3) где расходятся и чью позицию ты выбираешь и почему; "
+            "4) риски. Не пересказывай ответы целиком."},
+    ], work_folder)
+    if not verdict["ok"]:
+        report.append(f"Судья {judge} не ответил ({verdict['text'][:200]}), ниже сырые ответы.")
+        report.append(format_answers(good))
+        return "\n\n".join(report)
+
+    report.append(f"### Итог (судья: {judge})\n{verdict['text']}")
+    report.append("<details><summary>Ответы участников</summary>\n\n" + format_answers(good) + "\n</details>")
+    return "\n\n".join(report)
+
 def handle_list_models():
     lines = [
         "Подключенные пулы токенов и модели:",
@@ -179,7 +301,13 @@ def handle_list_models():
         "   - minimax-m3, mimo-v2.5-pro",
         "   - claude-opus-5-5, claude-sonnet-5",
         "",
-        "Общий доступный резерв: 15 000 000 единиц токенов."
+        "Общий доступный резерв: 15 000 000 единиц токенов.",
+        "",
+        "Консилиум (multillm_council):",
+        f"   - участники по умолчанию: {', '.join(COUNCIL_MEMBERS)}",
+        f"   - судья: {COUNCIL_JUDGE}",
+        f"   - '{CLAUDE_CLI_MEMBER}' — локальный Claude Code CLI по подписке",
+        f"   - активные провайдеры (с ключом): {', '.join(p['name'] for p in PROVIDERS)}"
     ]
     return "\n".join(lines)
 
@@ -230,6 +358,23 @@ TOOLS = [
         }
     },
     {
+        "name": "multillm_council",
+        "description": "Консилиум: задача параллельно уходит нескольким моделям (DeepSeek, GPT, Qwen, GLM, Claude и др. через все подключенные ключи), опционально они критикуют ответы друг друга, затем модель-судья сводит всё в одно решение. Для архитектуры, выбора стека, плана разработки приложения, сложных багов.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task": {"type": "string", "description": "Задача или вопрос для консилиума"},
+                "context": {"type": "string", "description": "Контекст: описание проекта, ключевые интерфейсы, лог ошибки (кратко)"},
+                "members": {"type": "array", "items": {"type": "string"}, "description": "Модели-участники; 'claude-cli' = локальный Claude Code. По умолчанию MULTILLM_COUNCIL_MEMBERS"},
+                "judge": {"type": "string", "description": "Модель-судья (по умолчанию claude-opus-5-5)"},
+                "rounds": {"type": "integer", "description": "1 = только независимые ответы; 2-3 = раунды взаимной критики", "default": 1},
+                "use_roles": {"type": "boolean", "description": "Раздать участникам разные роли (архитектор, безопасность, продукт...)", "default": True},
+                "work_folder": {"type": "string", "description": "Папка проекта (для участника claude-cli)"}
+            },
+            "required": ["task"]
+        }
+    },
+    {
         "name": "multillm_list_models",
         "description": "Получить список поддерживаемых моделей, провайдеров и балансов в объединенном пуле.",
         "inputSchema": {
@@ -266,7 +411,7 @@ def main():
                     },
                     "serverInfo": {
                         "name": "multillm-bridge",
-                        "version": "1.1.0"
+                        "version": "1.2.0"
                     }
                 }
             }
@@ -313,6 +458,16 @@ def main():
                         work_folder=args.get("work_folder", os.getcwd()),
                         focus=args.get("focus", ""),
                         model=args.get("model")
+                    )
+                elif tool_name == "multillm_council":
+                    text = handle_council(
+                        task=args.get("task", ""),
+                        members=args.get("members"),
+                        judge=args.get("judge"),
+                        context=args.get("context", ""),
+                        rounds=args.get("rounds", 1),
+                        use_roles=args.get("use_roles", True),
+                        work_folder=args.get("work_folder")
                     )
                 elif tool_name == "multillm_list_models":
                     text = handle_list_models()
