@@ -105,6 +105,7 @@ Antigravity ↔ Claude Code Bridge входит в **[MindTagSystem](https://git
 | ИИ-ядро | [AI Duo (multimodel-agent)](https://github.com/tagiriskaliev18-hash/multimodel-agent) | Единый ИИ-шлюз с OpenAI-совместимым API для всех моделей |
 | ИИ-ядро | **Antigravity ↔ Claude Code Bridge** ← вы здесь | MCP-мост, который связывает Antigravity, Claude Code и пул моделей |
 | ИИ-ядро | [Qwen 14B Coder Dev](https://github.com/tagiriskaliev18-hash/qwen14b-coder-dev) | Локальная офлайн-модель для программирования в Ollama |
+| Приложения | [MindMail](https://github.com/tagiriskaliev18-hash/MindMail) | Все почтовые ящики в одном и лучшее из Gmail, Mail.ru, Outlook и Яндекс Почты |
 | Приложения | [FileHub AI](https://github.com/tagiriskaliev18-hash/filehub-ai) | Хранилище файлов с ИИ-агентом для Word, PowerPoint и Excel |
 | Приложения | [SortApp (анализатор логов)](https://github.com/tagiriskaliev18-hash/sortapp) | Анализатор журналов доступа к сетевым папкам с отчётами Excel |
 | Приложения | [ИИ Доктор (medical-ai-assistant)](https://github.com/tagiriskaliev18-hash/medical-ai-assistant) | Офлайн-ассистент врача приёмного покоя |
