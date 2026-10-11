@@ -31,6 +31,13 @@ if (Test-Path $sourceMulti) {
     Write-Host "  Deployed multillm_bridge to $targetMulti" -ForegroundColor Green
 }
 
+$sourceProviders = Join-Path $repoRoot "config\multillm_providers.json"
+$targetConfig = Join-Path $ToolsDir "multillm_providers.json"
+if (Test-Path $sourceProviders) {
+    Copy-Item $sourceProviders -Destination $targetConfig -Force
+    Write-Host "  Deployed multillm provider config to $targetConfig" -ForegroundColor Green
+}
+
 Write-Host "[3/4] Deploying global Antigravity rules and skills..." -ForegroundColor Yellow
 Copy-Item (Join-Path $repoRoot "config\GEMINI.md") -Destination "$geminiConfigDir\GEMINI.md" -Force
 Copy-Item (Join-Path $repoRoot "config\rules\claude_bridge.md") -Destination "$geminiConfigDir\rules\claude_bridge.md" -Force
@@ -38,6 +45,7 @@ Copy-Item (Join-Path $repoRoot "config\skills\context_booster\SKILL.md") -Destin
 
 $escapedToolsPath = ($targetBridge -replace '\\', '\\')
 $escapedMultiPath = ($targetMulti -replace '\\', '\\')
+$escapedConfigPath = ($targetConfig -replace '\\', '\\')
 $mcpConfigJson = @"
 {
   "mcpServers": {
@@ -56,7 +64,8 @@ $mcpConfigJson = @"
         "$escapedMultiPath"
       ],
       "env": {
-        "MULTILLM_DEFAULT_MODEL": "deepseek-v4-pro"
+        "MULTILLM_DEFAULT_MODEL": "deepseek-v4-pro",
+        "MULTILLM_CONFIG": "$escapedConfigPath"
       }
     }
   }
@@ -101,3 +110,4 @@ Write-Host "  - Lazy review: triggered only for >3 files or >150 lines" -Foregro
 Write-Host "  - Parallel execution: subagents decomposed via define_subagent & invoke_subagent" -ForegroundColor Cyan
 Write-Host "  - Iteration Cap: max 8 iterations per subtask" -ForegroundColor Cyan
 Write-Host "  - Context Booster: enabled" -ForegroundColor Cyan
+Write-Host "  - API keys: set XYVERO_API_KEY, OCTAVAPI_API_KEY, and MULTILLM_API_KEY (see .env.example). No keys are shipped in the repo." -ForegroundColor Cyan

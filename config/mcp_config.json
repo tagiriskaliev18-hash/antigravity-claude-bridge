@@ -15,7 +15,8 @@
         "C:\\projects\\tools\\multillm_bridge.py"
       ],
       "env": {
-        "MULTILLM_DEFAULT_MODEL": "deepseek-v4-pro"
+        "MULTILLM_DEFAULT_MODEL": "deepseek-v4-pro",
+        "MULTILLM_CONFIG": "C:\\projects\\tools\\multillm_providers.json"
       }
     }
   }
