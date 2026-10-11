@@ -1,0 +1,84 @@
+{
+  "default_model": "deepseek-v4.1-flash",
+  "catalog_footer": "Общий доступный резерв: 15 000 000 единиц токенов.",
+  "tools": {
+    "ask_description": "Задать вопрос или передать задачу в DeepSeek (v4.1 flash / v4 pro), Qwen, GLM, MiniMax или другую модель из объединенного пула токенов (15M).",
+    "ask_model_description": "Идентификатор модели (deepseek-v4.1-flash, deepseek-v4-pro, qwen3.8-flash, glm-5.3, minimax-m3, mimo-v2.5-pro)",
+    "review_description": "Провести код-ревью через DeepSeek (v4.1-flash или v4-pro), Qwen или GLM.",
+    "review_model_description": "Модель (по умолчанию deepseek-v4.1-flash)",
+    "list_description": "Получить список поддерживаемых моделей, провайдеров и балансов в объединенном пуле."
+  },
+  "providers": [
+    {
+      "id": "xyvero",
+      "name": "xyvero (10M Pool)",
+      "base_url": "https://xyvero.space/v1",
+      "base_url_env": "XYVERO_BASE_URL",
+      "api_key_env": "XYVERO_API_KEY",
+      "models_env": "XYVERO_MODELS",
+      "supported_models": [
+        "deepseek-v4.1-flash"
+      ],
+      "priority": 10,
+      "catalog_visible": true,
+      "catalog_title": "Пул Xyvero (10 000 000 единиц)",
+      "catalog_entries": [
+        "deepseek-v4.1-flash — быстрый, экономный анализ и генерация кода (маршрутизируется по умолчанию)"
+      ]
+    },
+    {
+      "id": "octavapi",
+      "name": "octavapi (GPT-6 Astra & Opus 5.5 Pool)",
+      "base_url": "https://octavapi.shop/v1",
+      "base_url_env": "OCTAVAPI_BASE_URL",
+      "api_key_env": "OCTAVAPI_API_KEY",
+      "models_env": "OCTAVAPI_MODELS",
+      "supported_models": [
+        "gpt-6-astra",
+        "gpt-6-sol",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-5.5",
+        "claude-opus-5-5",
+        "claude-sonnet-5"
+      ],
+      "priority": 8,
+      "catalog_visible": false
+    },
+    {
+      "id": "cheapvibecode",
+      "name": "cheapvibecode (5M Pool)",
+      "base_url": "https://api.aikeysforyou.com/v1",
+      "base_url_env": "MULTILLM_BASE_URL",
+      "api_key_env": "MULTILLM_API_KEY",
+      "models_env": "MULTILLM_MODELS",
+      "supported_models": [
+        "deepseek-v4-pro",
+        "deepseek-v4.1-flash",
+        "deepseek-v4-flash",
+        "qwen3.8-flash",
+        "qwen3.8-max",
+        "glm-5.3",
+        "glm-5.3-flash",
+        "glm-5.2",
+        "minimax-m3",
+        "mimo-v2.5-pro",
+        "mimo-v2.5",
+        "claude-opus-5-5",
+        "claude-sonnet-5",
+        "gpt-6-astra",
+        "gpt-5.6-terra"
+      ],
+      "priority": 5,
+      "catalog_visible": true,
+      "catalog_title": "Пул CheapVibeCode (5 000 000 единиц)",
+      "catalog_entries": [
+        "deepseek-v4-pro (0.5 ед./токен) — топовая модель глубоких рассуждений",
+        "qwen3.8-flash / qwen3.8-max (1 ед./токен) — Qwen",
+        "glm-5.3 / glm-5.3-flash (0.5 - 1.5 ед./токен) — GLM",
+        "minimax-m3, mimo-v2.5-pro",
+        "claude-opus-5-5, claude-sonnet-5"
+      ]
+    }
+  ]
+}
